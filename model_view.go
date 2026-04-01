@@ -110,21 +110,27 @@ func (m Model) viewDetail() string {
 
 	header := titleStyle.Render(fmt.Sprintf("Issue: %s", identifier))
 
-	loadingHint := ""
-	if m.detailIssue != nil && m.cachedCommentID != m.detailIssue.ID {
-		loadingHint = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#7C3AED")).
-			Padding(0, 1).
-			Render(m.spinner.View() + " Loading comments...")
+	status := statusBarStyle.Render(
+		"d/esc:back  j/k:scroll  m:comment  t:transition  g:open  q:quit",
+	)
+
+	if m.loading && m.detailIssue != nil && m.cachedCommentID != m.detailIssue.ID {
+		loadingBox := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#7C3AED")).
+			Padding(1, 3).
+			Render(m.spinner.View() + "  Loading comments...")
+		overlay := lipgloss.Place(m.width, m.height-4, lipgloss.Center, lipgloss.Center, loadingBox)
+		return appStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, overlay, status))
 	}
 
 	body := m.detailViewport.View()
 	scrollPct := fmt.Sprintf("%3.f%%", m.detailViewport.ScrollPercent()*100)
-	status := statusBarStyle.Render(
+	status = statusBarStyle.Render(
 		fmt.Sprintf("%s | d/esc:back  j/k:scroll  m:comment  t:transition  g:open  q:quit", scrollPct),
 	)
 
-	return appStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, loadingHint, body, status))
+	return appStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, body, status))
 }
 
 func (m Model) renderSlotBar() string {
