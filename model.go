@@ -932,8 +932,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.cfg = msg.cfg
 		m.flushTeamState()
-		m.statusMsg = fmt.Sprintf("Switched to %s", m.cfg.TeamKey)
-		return m, tea.Batch(m.fetchIssues(), m.fetchProjects(), m.fetchWorkflowStates())
+		m.loading = true
+		m.loadingLabel = fmt.Sprintf("Loading %s...", m.cfg.TeamKey)
+		return m, tea.Batch(m.fetchIssues(), m.fetchProjects(), m.fetchWorkflowStates(), m.spinner.Tick)
 
 	case setupCompleteMsg:
 		m.cfg = msg.cfg
@@ -1229,7 +1230,7 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.detailViewport.SetContent(m.buildDetailContent(issue, contentWidth))
 		m.detailViewport.GotoTop()
 		if issue.ID != m.cachedCommentID {
-			return m, m.fetchCommentsCmd(issue.ID)
+			return m, tea.Batch(m.fetchCommentsCmd(issue.ID), m.spinner.Tick)
 		}
 		return m, nil
 
@@ -1747,6 +1748,16 @@ func (m Model) viewDetail() string {
 	}
 
 	header := titleStyle.Render(fmt.Sprintf("Issue: %s", identifier))
+
+	// Show loading indicator while comments are being fetched
+	loadingHint := ""
+	if m.detailIssue != nil && m.cachedCommentID != m.detailIssue.ID {
+		loadingHint = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#7C3AED")).
+			Padding(0, 1).
+			Render(m.spinner.View() + " Loading comments...")
+	}
+
 	body := m.detailViewport.View()
 
 	scrollPct := fmt.Sprintf("%3.f%%", m.detailViewport.ScrollPercent()*100)
@@ -1754,7 +1765,7 @@ func (m Model) viewDetail() string {
 		"%s | d/esc:back  j/k:scroll  m:comment  t:transition  g:open  q:quit", scrollPct))
 
 	return appStyle.Render(
-		lipgloss.JoinVertical(lipgloss.Left, header, body, status),
+		lipgloss.JoinVertical(lipgloss.Left, header, loadingHint, body, status),
 	)
 }
 
