@@ -119,7 +119,7 @@ func (c *CmuxClient) Available() bool {
 	if err != nil {
 		return false
 	}
-	conn.Close()
+	_ = conn.Close()
 	return true
 }
 
@@ -131,9 +131,11 @@ func (c *CmuxClient) send(method string, params map[string]any) (*cmuxResponse, 
 	if err != nil {
 		return nil, fmt.Errorf("cmux socket connect: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
-	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		return nil, fmt.Errorf("cmux set deadline: %w", err)
+	}
 
 	id := fmt.Sprintf("lwt-%d", c.reqID.Add(1))
 	req := cmuxRequest{ID: id, Method: method, Params: params}
@@ -261,13 +263,13 @@ func (pm *PaneManager) OpenSlot(issue Issue, wtPath string, cfg Config) (*Worktr
 	// If either SendText fails, close the surface to avoid orphaned panes.
 	cdCmd := fmt.Sprintf("cd %s\n", shellQuote(wtPath))
 	if err := pm.client.SendText(pm.workspaceID, surfaceID, cdCmd); err != nil {
-		pm.client.CloseSurface(pm.workspaceID, surfaceID)
+		_ = pm.client.CloseSurface(pm.workspaceID, surfaceID)
 		return nil, fmt.Errorf("send cd: %w", err)
 	}
 
 	claudeCmd := fmt.Sprintf("%s --prompt %s\n", cfg.ClaudeCommand, shellQuote(prompt))
 	if err := pm.client.SendText(pm.workspaceID, surfaceID, claudeCmd); err != nil {
-		pm.client.CloseSurface(pm.workspaceID, surfaceID)
+		_ = pm.client.CloseSurface(pm.workspaceID, surfaceID)
 		return nil, fmt.Errorf("send claude: %w", err)
 	}
 
@@ -436,10 +438,10 @@ func shellQuote(s string) string {
 	var result []byte
 	result = append(result, '\'')
 	for _, c := range s {
-		switch {
-		case c == '\'':
+		switch c {
+		case '\'':
 			result = append(result, '\'', '\\', '\'', '\'')
-		case c == '\n' || c == '\r':
+		case '\n', '\r':
 			result = append(result, ' ')
 		default:
 			result = append(result, string(c)...)
