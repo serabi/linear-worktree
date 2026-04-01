@@ -150,7 +150,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case commentsLoadedMsg:
-		if m.view == viewDetail {
+		if m.loadingLabel == "Loading comments..." {
 			m.loading = false
 		}
 		if msg.err == nil {
@@ -452,6 +452,7 @@ func (m *Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "d":
 		m.view = viewList
 		m.detailIssue = nil
+		m.loading = false
 		return m, nil
 	case "ctrl+c", "q":
 		return m, tea.Quit
