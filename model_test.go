@@ -225,6 +225,7 @@ func TestSettingsCompletionWithCredentials(t *testing.T) {
 }
 
 func TestSettingsTeamKeyChangeTriggersResolve(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	cfg := Config{
 		LinearAPIKey:  "lin_api_test",
 		TeamID:        "team-1",
