@@ -57,7 +57,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		if msg.String() == "q" || msg.String() == "ctrl+c" {
+		textInputView := m.view == viewSearch || m.view == viewComment || m.view == viewPrompt || m.view == viewSettings
+		if msg.String() == "ctrl+c" || (msg.String() == "q" && !textInputView) {
 			if m.list.FilterState() == list.Filtering && msg.String() != "ctrl+c" {
 				var cmd tea.Cmd
 				m.list, cmd = m.list.Update(msg)
