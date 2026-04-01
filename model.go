@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -95,7 +96,33 @@ func (i issueItem) Title() string {
 	)
 }
 
-func (i issueItem) Description() string { return "" }
+func (i issueItem) Description() string {
+	var parts []string
+	if i.issue.Project != nil {
+		parts = append(parts, i.issue.Project.Name)
+	}
+	if i.issue.DueDate != nil {
+		if t, err := time.Parse("2006-01-02", *i.issue.DueDate); err == nil {
+			days := int(time.Until(t).Hours() / 24)
+			switch {
+			case days < 0:
+				parts = append(parts, fmt.Sprintf("OVERDUE %dd", -days))
+			case days <= 3:
+				parts = append(parts, fmt.Sprintf("Due in %dd", days))
+			}
+		}
+	}
+	if n := len(i.issue.Children.Nodes); n > 0 {
+		done := 0
+		for _, c := range i.issue.Children.Nodes {
+			if c.State.Type == "completed" {
+				done++
+			}
+		}
+		parts = append(parts, fmt.Sprintf("[%d/%d]", done, n))
+	}
+	return strings.Join(parts, " | ")
+}
 func (i issueItem) FilterValue() string {
 	return i.issue.Identifier + " " + i.issue.Title
 }
@@ -200,6 +227,40 @@ type launchReadyMsg struct {
 
 type statusPollMsg struct{}
 
+type viewerLoadedMsg struct {
+	viewer *Viewer
+	err    error
+}
+
+type projectsLoadedMsg struct {
+	projects []Project
+	err      error
+}
+
+type statesLoadedMsg struct {
+	states []WorkflowState
+	err    error
+}
+
+type issueAssignedMsg struct {
+	identifier string
+	err        error
+}
+
+type issueStateChangedMsg struct {
+	identifier string
+	err        error
+}
+
+type branchIssueFoundMsg struct {
+	issue *Issue
+}
+
+type searchResultsMsg struct {
+	issues []Issue
+	err    error
+}
+
 // --- App state ---
 
 type viewMode int
@@ -211,6 +272,9 @@ const (
 	viewDetail
 	viewLaunch
 	viewPrompt
+	viewProjectPicker
+	viewStatePicker
+	viewSearch
 )
 
 type setupField int
@@ -265,6 +329,29 @@ type Model struct {
 	setupField   setupField
 	apiKeyInput  textinput.Model
 	teamKeyInput textinput.Model
+
+	// Viewer (authenticated user)
+	viewer *Viewer
+
+	// Project filtering
+	projects      []Project
+	projectFilter *string // nil = all, "none" = no project, else project ID
+	projectName   string  // for status bar display
+	projectForm   *huh.Form
+
+	// State transition
+	workflowStates []WorkflowState
+	stateForm      *huh.Form
+	stateIssue     *Issue
+
+	// Picker selection values (bound to huh forms via pointer)
+	pickerSelected string
+
+	// Server search
+	searchInput  textinput.Model
+	searching    bool
+	searchTerm   string
+	savedIssues  []Issue // stash regular issues while showing search results
 }
 
 // keyMap defines keybindings for the help component.
@@ -280,6 +367,9 @@ type keyMap struct {
 	Refresh  key.Binding
 	Search   key.Binding
 	Setup    key.Binding
+	Project  key.Binding
+	State    key.Binding
+	Assign   key.Binding
 	Quit     key.Binding
 }
 
@@ -296,27 +386,31 @@ func defaultKeyMap() keyMap {
 		Refresh:  key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
 		Search:   key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 		Setup:    key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "setup")),
+		Project:  key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "project")),
+		State:    key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "transition")),
+		Assign:   key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "assign to me")),
 		Quit:     key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
 	}
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Claude, k.Worktree, k.Comment, k.Detail, k.Filter, k.Close, k.Quit}
+	return []key.Binding{k.Claude, k.Detail, k.Project, k.Filter, k.State, k.Assign, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Navigate, k.Claude, k.Worktree, k.Close},
 		{k.Comment, k.Detail, k.Filter, k.Search},
-		{k.Open, k.Refresh, k.Setup, k.Quit},
+		{k.Project, k.State, k.Assign, k.Open},
+		{k.Refresh, k.Setup, k.Quit},
 	}
 }
 
 func NewModel(cfg Config) Model {
 	// Issue list
 	delegate := list.NewDefaultDelegate()
-	delegate.ShowDescription = false
-	delegate.SetHeight(1)
+	delegate.ShowDescription = true
+	delegate.SetHeight(2)
 	delegate.SetSpacing(0)
 
 	l := list.New([]list.Item{}, delegate, 0, 0)
@@ -339,6 +433,11 @@ func NewModel(cfg Config) Model {
 	commentIn := textinput.New()
 	commentIn.Placeholder = "Type your comment..."
 	commentIn.CharLimit = 2000
+
+	// Search input
+	searchIn := textinput.New()
+	searchIn.Placeholder = "Search issues..."
+	searchIn.CharLimit = 200
 
 	// Check for cmux
 	cmuxClient := NewCmuxClient()
@@ -387,6 +486,7 @@ func NewModel(cfg Config) Model {
 		apiKeyInput:      apiKey,
 		teamKeyInput:     teamKey,
 		commentInput:     commentIn,
+		searchInput:      searchIn,
 		cmuxClient:       cmuxClient,
 		paneManager:      pm,
 		useCmux:          useCmux,
@@ -410,6 +510,9 @@ func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{
 		m.fetchIssues(),
 		m.fetchWorktrees(),
+		m.fetchViewer(),
+		m.fetchProjects(),
+		m.detectBranchIssue(),
 	}
 	if m.useCmux {
 		cmds = append(cmds, m.startStatusPoll())
@@ -422,7 +525,11 @@ func (m Model) Init() tea.Cmd {
 func (m Model) fetchIssues() tea.Cmd {
 	return func() tea.Msg {
 		client := NewLinearClient(m.cfg.LinearAPIKey)
-		issues, err := client.GetIssues(m.cfg.TeamID, m.filter)
+		if m.projectFilter != nil && *m.projectFilter != "none" {
+			issues, _, err := client.GetIssuesByProject(m.cfg.TeamID, *m.projectFilter, "")
+			return issuesLoadedMsg{issues: issues, err: err}
+		}
+		issues, _, err := client.GetIssues(m.cfg.TeamID, m.filter, "")
 		return issuesLoadedMsg{issues: issues, err: err}
 	}
 }
@@ -477,6 +584,62 @@ func (m Model) fetchCommentsCmd(issueID string) tea.Cmd {
 		client := NewLinearClient(m.cfg.LinearAPIKey)
 		comments, err := client.GetComments(issueID)
 		return commentsLoadedMsg{issueID: issueID, comments: comments, err: err}
+	}
+}
+
+func (m Model) fetchViewer() tea.Cmd {
+	return func() tea.Msg {
+		client := NewLinearClient(m.cfg.LinearAPIKey)
+		viewer, err := client.GetViewer()
+		return viewerLoadedMsg{viewer: viewer, err: err}
+	}
+}
+
+func (m Model) fetchProjects() tea.Cmd {
+	return func() tea.Msg {
+		client := NewLinearClient(m.cfg.LinearAPIKey)
+		projects, err := client.GetProjects(m.cfg.TeamID)
+		return projectsLoadedMsg{projects: projects, err: err}
+	}
+}
+
+func (m Model) fetchWorkflowStates() tea.Cmd {
+	return func() tea.Msg {
+		client := NewLinearClient(m.cfg.LinearAPIKey)
+		states, err := client.GetWorkflowStates(m.cfg.TeamID)
+		return statesLoadedMsg{states: states, err: err}
+	}
+}
+
+func (m Model) assignToMeCmd(issueID, assigneeID, identifier string) tea.Cmd {
+	return func() tea.Msg {
+		client := NewLinearClient(m.cfg.LinearAPIKey)
+		err := client.UpdateIssueAssignee(issueID, assigneeID)
+		return issueAssignedMsg{identifier: identifier, err: err}
+	}
+}
+
+func (m Model) changeStateCmd(issueID, stateID, identifier string) tea.Cmd {
+	return func() tea.Msg {
+		client := NewLinearClient(m.cfg.LinearAPIKey)
+		err := client.UpdateIssueState(issueID, stateID)
+		return issueStateChangedMsg{identifier: identifier, err: err}
+	}
+}
+
+func (m Model) detectBranchIssue() tea.Cmd {
+	return func() tea.Msg {
+		out, err := osexec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").Output()
+		if err != nil {
+			return branchIssueFoundMsg{}
+		}
+		branch := strings.TrimSpace(string(out))
+		if !strings.HasPrefix(branch, m.cfg.BranchPrefix) {
+			return branchIssueFoundMsg{}
+		}
+		client := NewLinearClient(m.cfg.LinearAPIKey)
+		issue, _ := client.SearchIssueByBranch(branch)
+		return branchIssueFoundMsg{issue: issue}
 	}
 }
 
@@ -540,6 +703,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateLaunch(msg)
 		case viewPrompt:
 			return m.updatePrompt(msg)
+		case viewProjectPicker:
+			return m.updateProjectPicker(msg)
+		case viewStatePicker:
+			return m.updateStatePicker(msg)
+		case viewSearch:
+			return m.updateSearch(msg)
 		default:
 			return m.updateList(msg)
 		}
@@ -648,6 +817,69 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case teamsLoadedMsg:
 		if msg.err != nil {
 			m.statusMsg = fmt.Sprintf("Setup error: %v", msg.err)
+		}
+		return m, nil
+
+	case viewerLoadedMsg:
+		if msg.err == nil {
+			m.viewer = msg.viewer
+		}
+		return m, nil
+
+	case projectsLoadedMsg:
+		if msg.err == nil {
+			m.projects = msg.projects
+		}
+		return m, nil
+
+	case statesLoadedMsg:
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("Error loading states: %v", msg.err)
+			return m, nil
+		}
+		m.workflowStates = msg.states
+		m.showStatePicker()
+		return m, nil
+
+	case issueAssignedMsg:
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("Assign error: %v", msg.err)
+		} else {
+			m.statusMsg = fmt.Sprintf("Assigned %s to you", msg.identifier)
+			return m, m.fetchIssues()
+		}
+		return m, nil
+
+	case issueStateChangedMsg:
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("State change error: %v", msg.err)
+		} else {
+			m.statusMsg = fmt.Sprintf("Updated state for %s", msg.identifier)
+			return m, m.fetchIssues()
+		}
+		return m, nil
+
+	case searchResultsMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("Search error: %v", msg.err)
+			return m, nil
+		}
+		m.searching = true
+		m.issues = msg.issues
+		m.rebuildList()
+		m.statusMsg = fmt.Sprintf("Search: \"%s\" (%d results)", m.searchTerm, len(msg.issues))
+		return m, nil
+
+	case branchIssueFoundMsg:
+		if msg.issue != nil {
+			for i, item := range m.list.Items() {
+				if ii, ok := item.(issueItem); ok && ii.issue.Identifier == msg.issue.Identifier {
+					m.list.Select(i)
+					m.statusMsg = fmt.Sprintf("Auto-selected %s (matches current branch)", msg.issue.Identifier)
+					break
+				}
+			}
 		}
 		return m, nil
 	}
@@ -813,6 +1045,42 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.setupField = fieldAPIKey
 		m.apiKeyInput.Focus()
 		return m, textinput.Blink
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("p"))):
+		m.showProjectPicker()
+		return m, nil
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("t"))):
+		issue := m.selectedIssue()
+		if issue == nil {
+			m.statusMsg = "No issue selected"
+			return m, nil
+		}
+		m.stateIssue = issue
+		if len(m.workflowStates) > 0 {
+			m.showStatePicker()
+			return m, nil
+		}
+		return m, m.fetchWorkflowStates()
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("S"))):
+		m.view = viewSearch
+		m.searchInput.SetValue("")
+		m.searchInput.Focus()
+		return m, textinput.Blink
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("a"))):
+		issue := m.selectedIssue()
+		if issue == nil {
+			m.statusMsg = "No issue selected"
+			return m, nil
+		}
+		if m.viewer == nil {
+			m.statusMsg = "Viewer not loaded yet"
+			return m, nil
+		}
+		m.statusMsg = fmt.Sprintf("Assigning %s to you...", issue.Identifier)
+		return m, m.assignToMeCmd(issue.ID, m.viewer.ID, issue.Identifier)
 	}
 
 	var cmd tea.Cmd
@@ -1064,15 +1332,18 @@ func (m *Model) rebuildList() {
 }
 
 func (m Model) buildStatusLine() string {
-	parts := []string{
-		fmt.Sprintf("%d issues", len(m.issues)),
-		m.filter.String(),
+	parts := []string{}
+	if m.projectName != "" {
+		parts = append(parts, m.cfg.TeamKey+" > "+m.projectName)
+	} else {
+		parts = append(parts, m.cfg.TeamKey)
 	}
+	parts = append(parts, fmt.Sprintf("%d issues", len(m.issues)))
+	parts = append(parts, m.filter.String())
 	if m.useCmux && m.paneManager != nil {
 		active := m.paneManager.ActiveCount()
 		parts = append(parts, fmt.Sprintf("slots: %d/%d", active, m.cfg.MaxSlots))
 	}
-	parts = append(parts, "c:claude w:wt m:comment enter:detail x:close tab:filter")
 	return strings.Join(parts, " | ")
 }
 
@@ -1090,6 +1361,12 @@ func (m Model) View() string {
 		return m.viewLaunch()
 	case viewPrompt:
 		return m.viewPrompt()
+	case viewProjectPicker:
+		return m.viewPicker("Select Project", m.projectForm)
+	case viewStatePicker:
+		return m.viewPicker("Transition State", m.stateForm)
+	case viewSearch:
+		return m.viewSearchInput()
 	default:
 		return m.viewList()
 	}
@@ -1157,8 +1434,18 @@ func (m Model) buildDetailContent(issue *Issue, width int) string {
 	wrap := func(s string) string {
 		return lipgloss.NewStyle().Width(width).Render(s)
 	}
+	dim := commentDimStyle.Render
+	sectionHeader := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7C3AED")).Render
+	blockerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444")).Render
+	linkStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#06B6D4")).Render
+
+	field := func(label, value string) string {
+		return dim(fmt.Sprintf("%-12s", label)) + value + "\n"
+	}
 
 	var b strings.Builder
+
+	// Header
 	b.WriteString(issueIdentStyle.Render(issue.Identifier))
 	b.WriteString("  ")
 	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#EAB308")).Render(issue.State.Name))
@@ -1166,63 +1453,160 @@ func (m Model) buildDetailContent(issue *Issue, width int) string {
 	b.WriteString(lipgloss.NewStyle().Bold(true).Width(width).Render(issue.Title))
 	b.WriteString("\n\n")
 
+	// Metadata
+	if issue.Project != nil {
+		b.WriteString(field("Project", issue.Project.Name))
+	}
+	if issue.Cycle != nil {
+		b.WriteString(field("Cycle", issue.Cycle.Name))
+	}
 	if issue.Assignee != nil {
 		name := issue.Assignee.DisplayName
 		if name == "" {
 			name = issue.Assignee.Name
 		}
-		b.WriteString(commentDimStyle.Render("Assignee: "))
-		b.WriteString(name + "\n")
+		b.WriteString(field("Assignee", name))
 	}
-
 	priNames := map[int]string{0: "None", 1: "Urgent", 2: "High", 3: "Medium", 4: "Low"}
-	b.WriteString(commentDimStyle.Render("Priority: "))
-	b.WriteString(priNames[issue.Priority] + "\n")
-
+	b.WriteString(field("Priority", priNames[issue.Priority]))
+	if issue.Estimate != nil {
+		b.WriteString(field("Estimate", fmt.Sprintf("%.0f pts", *issue.Estimate)))
+	}
+	if issue.DueDate != nil {
+		dueStr := *issue.DueDate
+		if t, err := time.Parse("2006-01-02", *issue.DueDate); err == nil {
+			days := int(time.Until(t).Hours() / 24)
+			switch {
+			case days < 0:
+				dueStr = blockerStyle(fmt.Sprintf("%s (OVERDUE by %dd)", *issue.DueDate, -days))
+			case days <= 3:
+				dueStr = lipgloss.NewStyle().Foreground(lipgloss.Color("#EAB308")).Render(
+					fmt.Sprintf("%s (%dd)", *issue.DueDate, days))
+			default:
+				dueStr = fmt.Sprintf("%s (%dd)", *issue.DueDate, days)
+			}
+		}
+		b.WriteString(field("Due", dueStr))
+	}
 	if len(issue.Labels.Nodes) > 0 {
 		labels := make([]string, len(issue.Labels.Nodes))
 		for i, l := range issue.Labels.Nodes {
 			labels[i] = l.Name
 		}
-		b.WriteString(commentDimStyle.Render("Labels: "))
-		b.WriteString(wrap(strings.Join(labels, ", ")) + "\n")
+		b.WriteString(field("Labels", wrap(strings.Join(labels, ", "))))
 	}
-
+	if issue.CreatedAt != "" {
+		b.WriteString(field("Created", relativeTime(issue.CreatedAt)))
+	}
+	if issue.UpdatedAt != "" {
+		b.WriteString(field("Updated", relativeTime(issue.UpdatedAt)))
+	}
 	if issue.BranchName != "" {
-		b.WriteString(commentDimStyle.Render("Branch: "))
-		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")).Width(width).Render(issue.BranchName) + "\n")
+		b.WriteString(field("Branch", lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")).Render(issue.BranchName)))
 	}
-
 	if issue.URL != "" {
-		b.WriteString(commentDimStyle.Render("URL: "))
-		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#06B6D4")).Width(width).Render(issue.URL) + "\n")
+		b.WriteString(field("URL", linkStyle(issue.URL)))
 	}
 
+	// Relations
+	if len(issue.Relations.Nodes) > 0 {
+		b.WriteString("\n")
+		b.WriteString(sectionHeader("Relations"))
+		b.WriteString("\n")
+		for _, r := range issue.Relations.Nodes {
+			prefix := r.Type
+			style := dim
+			switch r.Type {
+			case "blocks":
+				prefix = "Blocking"
+			case "is blocked by", "blocked":
+				prefix = "Blocked by"
+				style = blockerStyle
+			case "related":
+				prefix = "Related"
+			case "duplicate":
+				prefix = "Duplicate"
+			}
+			b.WriteString(fmt.Sprintf("  %s %s\n",
+				style(prefix+":"),
+				linkStyle(r.RelatedIssue.Identifier)+dim(" "+r.RelatedIssue.Title)))
+		}
+	}
+
+	// Parent
+	if issue.Parent != nil {
+		b.WriteString("\n")
+		b.WriteString(field("Parent", linkStyle(issue.Parent.Identifier)+dim(" "+issue.Parent.Title)))
+	}
+
+	// Sub-issues
+	if len(issue.Children.Nodes) > 0 {
+		b.WriteString("\n")
+		completed := 0
+		for _, child := range issue.Children.Nodes {
+			if child.State.Type == "completed" {
+				completed++
+			}
+		}
+		b.WriteString(sectionHeader(fmt.Sprintf("Sub-issues [%d/%d]", completed, len(issue.Children.Nodes))))
+		b.WriteString("\n")
+		for _, child := range issue.Children.Nodes {
+			icon := statusIcon(child.State.Type)
+			b.WriteString(fmt.Sprintf("  %s %s %s\n", icon, linkStyle(child.Identifier), dim(child.Title)))
+		}
+	}
+
+	// Description
 	if issue.Description != "" {
 		b.WriteString("\n")
-		b.WriteString(commentDimStyle.Render("Description:"))
+		b.WriteString(sectionHeader("Description"))
 		b.WriteString("\n")
 		b.WriteString(wrap(issue.Description))
 		b.WriteString("\n")
 	}
 
+	// Comments
 	if m.cachedCommentID == issue.ID && len(m.cachedComments) > 0 {
 		b.WriteString("\n")
-		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7C3AED")).Render("Comments"))
+		b.WriteString(sectionHeader(fmt.Sprintf("Comments (%d)", len(m.cachedComments))))
 		b.WriteString("\n")
 		for _, c := range m.cachedComments {
 			name := c.User.DisplayName
 			if name == "" {
 				name = c.User.Name
 			}
-			b.WriteString(commentDimStyle.Render(fmt.Sprintf("\n%s:", name)))
-			b.WriteString("\n")
+			isMe := m.viewer != nil && c.User.ID == m.viewer.ID
+			nameStyle := dim
+			if isMe {
+				nameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")).Bold(true).Render
+			}
+			b.WriteString(fmt.Sprintf("\n%s %s\n", nameStyle(name+":"), dim(relativeTime(c.CreatedAt))))
 			b.WriteString(wrap(c.Body))
 			b.WriteString("\n")
 		}
 	}
 
 	return b.String()
+}
+
+func relativeTime(iso string) string {
+	t, err := time.Parse(time.RFC3339, iso)
+	if err != nil {
+		return iso
+	}
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	case d < 30*24*time.Hour:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	default:
+		return t.Format("Jan 2")
+	}
 }
 
 func (m Model) viewLaunch() string {
@@ -1286,6 +1670,200 @@ func (m Model) viewSetup() string {
 		m.width, m.height,
 		lipgloss.Center, lipgloss.Center,
 		setupStyle.Render(b.String()),
+	)
+}
+
+// --- Project & State Pickers ---
+
+func (m *Model) showProjectPicker() {
+	options := []huh.Option[string]{
+		huh.NewOption("All issues", ""),
+		huh.NewOption("No project", "none"),
+	}
+	for _, p := range m.projects {
+		label := p.Name
+		if p.Progress > 0 {
+			label = fmt.Sprintf("%s (%.0f%%)", p.Name, p.Progress*100)
+		}
+		options = append(options, huh.NewOption(label, p.ID))
+	}
+
+	m.pickerSelected = ""
+	m.projectForm = huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Filter by project").
+				Options(options...).
+				Value(&m.pickerSelected),
+		),
+	).WithWidth(50).WithShowHelp(false).WithShowErrors(false)
+	m.projectForm.Init()
+	m.view = viewProjectPicker
+}
+
+func (m *Model) showStatePicker() {
+	if m.stateIssue == nil {
+		return
+	}
+	options := make([]huh.Option[string], 0, len(m.workflowStates))
+	for _, s := range m.workflowStates {
+		label := fmt.Sprintf("%s (%s)", s.Name, s.Type)
+		options = append(options, huh.NewOption(label, s.ID))
+	}
+
+	m.pickerSelected = ""
+	m.stateForm = huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title(fmt.Sprintf("Transition %s", m.stateIssue.Identifier)).
+				Options(options...).
+				Value(&m.pickerSelected),
+		),
+	).WithWidth(50).WithShowHelp(false).WithShowErrors(false)
+	m.stateForm.Init()
+	m.view = viewStatePicker
+}
+
+func (m *Model) updateProjectPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "esc" {
+		m.view = viewList
+		m.projectForm = nil
+		return m, nil
+	}
+
+	form, cmd := m.projectForm.Update(msg)
+	if f, ok := form.(*huh.Form); ok {
+		m.projectForm = f
+	}
+
+	if m.projectForm.State == huh.StateCompleted {
+		selected := m.pickerSelected
+		m.projectForm = nil
+		m.view = viewList
+
+		switch selected {
+		case "":
+			m.projectFilter = nil
+			m.projectName = ""
+		case "none":
+			s := "none"
+			m.projectFilter = &s
+			m.projectName = "No project"
+		default:
+			m.projectFilter = &selected
+			for _, p := range m.projects {
+				if p.ID == selected {
+					m.projectName = p.Name
+					break
+				}
+			}
+		}
+
+		m.loading = true
+		m.statusMsg = m.spinner.View() + " Loading..."
+		return m, tea.Batch(m.fetchIssues(), m.spinner.Tick)
+	}
+
+	return m, cmd
+}
+
+func (m *Model) updateStatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "esc" {
+		m.view = viewList
+		m.stateForm = nil
+		m.stateIssue = nil
+		return m, nil
+	}
+
+	form, cmd := m.stateForm.Update(msg)
+	if f, ok := form.(*huh.Form); ok {
+		m.stateForm = f
+	}
+
+	if m.stateForm.State == huh.StateCompleted {
+		selected := m.pickerSelected
+		issue := m.stateIssue
+		m.stateForm = nil
+		m.stateIssue = nil
+		m.view = viewList
+
+		if selected != "" && issue != nil {
+			m.statusMsg = fmt.Sprintf("Updating state for %s...", issue.Identifier)
+			return m, m.changeStateCmd(issue.ID, selected, issue.Identifier)
+		}
+	}
+
+	return m, cmd
+}
+
+func (m *Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.view = viewList
+		if m.searching && m.savedIssues != nil {
+			m.issues = m.savedIssues
+			m.savedIssues = nil
+			m.searching = false
+			m.searchTerm = ""
+			m.rebuildList()
+			m.statusMsg = m.buildStatusLine()
+		}
+		return m, nil
+
+	case "enter":
+		term := strings.TrimSpace(m.searchInput.Value())
+		if term == "" {
+			m.view = viewList
+			return m, nil
+		}
+		m.searchTerm = term
+		if !m.searching {
+			m.savedIssues = m.issues
+		}
+		m.view = viewList
+		m.loading = true
+		m.statusMsg = m.spinner.View() + " Searching..."
+		return m, tea.Batch(m.searchIssuesCmd(term), m.spinner.Tick)
+	}
+
+	var cmd tea.Cmd
+	m.searchInput, cmd = m.searchInput.Update(msg)
+	return m, cmd
+}
+
+func (m Model) searchIssuesCmd(term string) tea.Cmd {
+	return func() tea.Msg {
+		client := NewLinearClient(m.cfg.LinearAPIKey)
+		issues, _, err := client.SearchIssues(term, m.cfg.TeamID, 50, "")
+		return searchResultsMsg{issues: issues, err: err}
+	}
+}
+
+func (m Model) viewSearchInput() string {
+	listView := m.list.View()
+	searchBar := lipgloss.NewStyle().
+		Padding(0, 1).
+		Foreground(lipgloss.Color("#7C3AED")).
+		Render("Search: ") +
+		m.searchInput.View()
+
+	status := statusBarStyle.Render("[Enter] search  [Esc] cancel")
+	return appStyle.Render(
+		lipgloss.JoinVertical(lipgloss.Left, listView, searchBar, status),
+	)
+}
+
+func (m Model) viewPicker(title string, form *huh.Form) string {
+	if form == nil {
+		return ""
+	}
+	header := titleStyle.Render(title)
+	body := form.View()
+	status := statusBarStyle.Render("[Enter] select  [Esc] cancel")
+	return lipgloss.Place(
+		m.width, m.height,
+		lipgloss.Center, lipgloss.Center,
+		setupStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, body, status)),
 	)
 }
 

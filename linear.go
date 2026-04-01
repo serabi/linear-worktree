@@ -27,19 +27,24 @@ type LinearClient struct {
 }
 
 type Issue struct {
-	ID         string `json:"id"`
-	Identifier string `json:"identifier"`
-	Title      string `json:"title"`
-	Description string `json:"description"`
-	Priority   int    `json:"priority"`
-	URL        string `json:"url"`
-	BranchName string `json:"branchName"`
-	State      struct {
+	ID          string   `json:"id"`
+	Identifier  string   `json:"identifier"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Priority    int      `json:"priority"`
+	URL         string   `json:"url"`
+	BranchName  string   `json:"branchName"`
+	Estimate    *float64 `json:"estimate"`
+	DueDate     *string  `json:"dueDate"`
+	CreatedAt   string   `json:"createdAt"`
+	UpdatedAt   string   `json:"updatedAt"`
+	State       struct {
 		Name  string `json:"name"`
 		Type  string `json:"type"`
 		Color string `json:"color"`
 	} `json:"state"`
 	Assignee *struct {
+		ID          string `json:"id"`
 		Name        string `json:"name"`
 		DisplayName string `json:"displayName"`
 	} `json:"assignee"`
@@ -49,6 +54,40 @@ type Issue struct {
 			Color string `json:"color"`
 		} `json:"nodes"`
 	} `json:"labels"`
+	Cycle *struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"cycle"`
+	Project *struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"project"`
+	Parent *struct {
+		ID         string `json:"id"`
+		Identifier string `json:"identifier"`
+		Title      string `json:"title"`
+	} `json:"parent"`
+	Children struct {
+		Nodes []struct {
+			ID         string `json:"id"`
+			Identifier string `json:"identifier"`
+			Title      string `json:"title"`
+			State      struct {
+				Name string `json:"name"`
+				Type string `json:"type"`
+			} `json:"state"`
+		} `json:"nodes"`
+	} `json:"children"`
+	Relations struct {
+		Nodes []struct {
+			Type         string `json:"type"`
+			RelatedIssue struct {
+				ID         string `json:"id"`
+				Identifier string `json:"identifier"`
+				Title      string `json:"title"`
+			} `json:"relatedIssue"`
+		} `json:"nodes"`
+	} `json:"relations"`
 }
 
 type Team struct {
@@ -80,7 +119,7 @@ func (lc *LinearClient) queryWithVars(q string, vars map[string]any, result inte
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", lc.apiKey)
+	req.Header.Set("Authorization", "Bearer "+lc.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := lc.client.Do(req)
@@ -161,93 +200,64 @@ func (lc *LinearClient) GetTeamByKey(key string) (*Team, error) {
 	return &result.Teams.Nodes[0], nil
 }
 
-var issueQueryByFilter = map[FilterMode]string{
+const issueFields = `
+	id identifier title description priority url branchName
+	estimate dueDate createdAt updatedAt
+	state { name type color }
+	assignee { id name displayName }
+	labels { nodes { name color } }
+	cycle { id name }
+	project { id name }
+	parent { id identifier title }
+	children { nodes { id identifier title state { name type } } }
+	relations { nodes { type relatedIssue { id identifier title } } }
+`
+
+const issueQueryTemplate = `
+	query($teamID: ID!, $after: String) {
+		issues(
+			filter: { and: [
+				{ team: { id: { eq: $teamID } } },
+				%s
+			] }
+			first: 50
+			after: $after
+			orderBy: updatedAt
+		) {
+			nodes { ` + issueFields + ` }
+			pageInfo { hasNextPage endCursor }
+		}
+	}`
+
+var issueFilterByMode = map[FilterMode]string{
 	FilterAssigned: `
-		query($teamID: ID!) {
-			issues(
-				filter: { and: [
-					{ team: { id: { eq: $teamID } } },
-					{ assignee: { isMe: { eq: true } } },
-					{ state: { type: { nin: ["completed", "cancelled"] } } }
-				] }
-				first: 50
-				orderBy: updatedAt
-			) {
-				nodes {
-					id identifier title description priority url branchName
-					state { name type color }
-					assignee { name displayName }
-					labels { nodes { name color } }
-				}
-			}
-		}`,
+		{ assignee: { isMe: { eq: true } } },
+		{ state: { type: { nin: ["completed", "cancelled"] } } }`,
 	FilterAll: `
-		query($teamID: ID!) {
-			issues(
-				filter: { and: [
-					{ team: { id: { eq: $teamID } } },
-					{ state: { type: { nin: ["completed", "cancelled"] } } }
-				] }
-				first: 50
-				orderBy: updatedAt
-			) {
-				nodes {
-					id identifier title description priority url branchName
-					state { name type color }
-					assignee { name displayName }
-					labels { nodes { name color } }
-				}
-			}
-		}`,
+		{ state: { type: { nin: ["completed", "cancelled"] } } }`,
 	FilterTodo: `
-		query($teamID: ID!) {
-			issues(
-				filter: { and: [
-					{ team: { id: { eq: $teamID } } },
-					{ state: { type: { eq: "unstarted" } } }
-				] }
-				first: 50
-				orderBy: updatedAt
-			) {
-				nodes {
-					id identifier title description priority url branchName
-					state { name type color }
-					assignee { name displayName }
-					labels { nodes { name color } }
-				}
-			}
-		}`,
+		{ state: { type: { eq: "unstarted" } } }`,
 	FilterInProgress: `
-		query($teamID: ID!) {
-			issues(
-				filter: { and: [
-					{ team: { id: { eq: $teamID } } },
-					{ state: { type: { eq: "started" } } }
-				] }
-				first: 50
-				orderBy: updatedAt
-			) {
-				nodes {
-					id identifier title description priority url branchName
-					state { name type color }
-					assignee { name displayName }
-					labels { nodes { name color } }
-				}
-			}
-		}`,
+		{ state: { type: { eq: "started" } } }`,
 }
 
-func (lc *LinearClient) GetIssues(teamID string, filter FilterMode) ([]Issue, error) {
-	q := issueQueryByFilter[filter]
+func (lc *LinearClient) GetIssues(teamID string, filter FilterMode, after string) ([]Issue, PageInfo, error) {
+	q := fmt.Sprintf(issueQueryTemplate, issueFilterByMode[filter])
 
 	var result struct {
 		Issues struct {
-			Nodes []Issue `json:"nodes"`
+			Nodes    []Issue  `json:"nodes"`
+			PageInfo PageInfo `json:"pageInfo"`
 		} `json:"issues"`
 	}
 
-	err := lc.queryWithVars(q, map[string]any{"teamID": teamID}, &result)
-	return result.Issues.Nodes, err
+	vars := map[string]any{"teamID": teamID}
+	if after != "" {
+		vars["after"] = after
+	}
+
+	err := lc.queryWithVars(q, vars, &result)
+	return result.Issues.Nodes, result.Issues.PageInfo, err
 }
 
 func (lc *LinearClient) AddComment(issueID, body string) error {
@@ -348,11 +358,162 @@ func (lc *LinearClient) GetWorkflowStates(teamID string) ([]WorkflowState, error
 	return result.WorkflowStates.Nodes, nil
 }
 
+func (lc *LinearClient) GetViewer() (*Viewer, error) {
+	var result struct {
+		Viewer Viewer `json:"viewer"`
+	}
+
+	err := lc.query(`
+		query {
+			viewer { id name displayName email }
+		}
+	`, &result)
+	if err != nil {
+		return nil, err
+	}
+	return &result.Viewer, nil
+}
+
+func (lc *LinearClient) GetProjects(teamID string) ([]Project, error) {
+	var result struct {
+		Projects struct {
+			Nodes []Project `json:"nodes"`
+		} `json:"projects"`
+	}
+
+	err := lc.queryWithVars(`
+		query($teamID: ID!) {
+			projects(
+				filter: {
+					accessibleTeams: { id: { eq: $teamID } }
+					state: { nin: ["completed", "cancelled"] }
+				}
+				first: 50
+				orderBy: updatedAt
+			) {
+				nodes { id name state description progress targetDate }
+			}
+		}
+	`, map[string]any{"teamID": teamID}, &result)
+	return result.Projects.Nodes, err
+}
+
+func (lc *LinearClient) GetIssuesByProject(teamID, projectID, after string) ([]Issue, PageInfo, error) {
+	q := fmt.Sprintf(`
+		query($teamID: ID!, $projectID: ID!, $after: String) {
+			issues(
+				filter: { and: [
+					{ team: { id: { eq: $teamID } } },
+					{ project: { id: { eq: $projectID } } },
+					{ state: { type: { nin: ["completed", "cancelled"] } } }
+				] }
+				first: 50
+				after: $after
+				orderBy: updatedAt
+			) {
+				nodes { %s }
+				pageInfo { hasNextPage endCursor }
+			}
+		}`, issueFields)
+
+	var result struct {
+		Issues struct {
+			Nodes    []Issue  `json:"nodes"`
+			PageInfo PageInfo `json:"pageInfo"`
+		} `json:"issues"`
+	}
+
+	vars := map[string]any{"teamID": teamID, "projectID": projectID}
+	if after != "" {
+		vars["after"] = after
+	}
+
+	err := lc.queryWithVars(q, vars, &result)
+	return result.Issues.Nodes, result.Issues.PageInfo, err
+}
+
+func (lc *LinearClient) SearchIssues(term, teamID string, first int, after string) ([]Issue, PageInfo, error) {
+	q := fmt.Sprintf(`
+		query($term: String!, $teamID: String, $first: Int, $after: String) {
+			searchIssues(
+				term: $term
+				teamId: $teamID
+				first: $first
+				after: $after
+			) {
+				nodes { %s }
+				pageInfo { hasNextPage endCursor }
+				totalCount
+			}
+		}`, issueFields)
+
+	var result struct {
+		SearchIssues struct {
+			Nodes    []Issue  `json:"nodes"`
+			PageInfo PageInfo `json:"pageInfo"`
+		} `json:"searchIssues"`
+	}
+
+	vars := map[string]any{"term": term, "first": first}
+	if teamID != "" {
+		vars["teamID"] = teamID
+	}
+	if after != "" {
+		vars["after"] = after
+	}
+
+	err := lc.queryWithVars(q, vars, &result)
+	return result.SearchIssues.Nodes, result.SearchIssues.PageInfo, err
+}
+
+func (lc *LinearClient) SearchIssueByBranch(branchName string) (*Issue, error) {
+	q := fmt.Sprintf(`
+		query($branchName: String!) {
+			issueVcsBranchSearch(branchName: $branchName) {
+				%s
+			}
+		}`, issueFields)
+
+	var result struct {
+		IssueVcsBranchSearch *Issue `json:"issueVcsBranchSearch"`
+	}
+
+	err := lc.queryWithVars(q, map[string]any{"branchName": branchName}, &result)
+	if err != nil {
+		return nil, err
+	}
+	return result.IssueVcsBranchSearch, nil
+}
+
+func (lc *LinearClient) UpdateIssueAssignee(issueID, assigneeID string) error {
+	q := `
+		mutation($id: ID!, $assigneeId: ID!) {
+			issueUpdate(id: $id, input: { assigneeId: $assigneeId }) {
+				success
+			}
+		}`
+
+	var result struct {
+		IssueUpdate struct {
+			Success bool `json:"success"`
+		} `json:"issueUpdate"`
+	}
+
+	if err := lc.queryWithVars(q, map[string]any{"id": issueID, "assigneeId": assigneeID}, &result); err != nil {
+		return err
+	}
+	if !result.IssueUpdate.Success {
+		return fmt.Errorf("assignee update failed")
+	}
+	return nil
+}
+
 type Comment struct {
 	ID        string `json:"id"`
 	Body      string `json:"body"`
 	CreatedAt string `json:"createdAt"`
 	User      struct {
+		ID          string `json:"id"`
 		DisplayName string `json:"displayName"`
 		Name        string `json:"name"`
 	} `json:"user"`
@@ -362,6 +523,27 @@ type WorkflowState struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Type string `json:"type"`
+}
+
+type PageInfo struct {
+	HasNextPage bool   `json:"hasNextPage"`
+	EndCursor   string `json:"endCursor"`
+}
+
+type Project struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	State       string  `json:"state"`
+	Description string  `json:"description"`
+	Progress    float64 `json:"progress"`
+	TargetDate  *string `json:"targetDate"`
+}
+
+type Viewer struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	DisplayName string `json:"displayName"`
+	Email       string `json:"email"`
 }
 
 type FilterMode int
