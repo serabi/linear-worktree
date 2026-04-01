@@ -195,6 +195,7 @@ type worktreeCreatedMsg struct {
 	path       string
 	identifier string
 	err        error
+	hookErr    error
 }
 
 type claudeLaunchedMsg struct {
@@ -779,7 +780,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = fmt.Sprintf("Error creating worktree: %v", msg.err)
 			return m, nil
 		}
-		m.statusMsg = fmt.Sprintf("Worktree created: %s", msg.path)
+		if msg.hookErr != nil {
+			m.statusMsg = fmt.Sprintf("Worktree created: %s (hook failed: %v)", msg.path, msg.hookErr)
+		} else {
+			m.statusMsg = fmt.Sprintf("Worktree created: %s", msg.path)
+		}
 		return m, m.fetchWorktrees()
 
 	case cmuxSlotOpenedMsg:
@@ -848,9 +853,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.settingsFirstRun = false
 		m.statusMsg = "Settings saved. API key stored in OS keychain."
 		m.updateListTitle()
-		if m.paneManager != nil {
-			m.paneManager = NewPaneManager(m.cmuxClient, m.cfg.MaxSlots)
-		}
+		m.recreatePaneManagerIfNeeded()
 		cmds := []tea.Cmd{m.fetchIssues(), m.fetchWorktrees(), m.fetchViewer(), m.fetchProjects()}
 		if m.useCmux {
 			cmds = append(cmds, m.startStatusPoll())
@@ -935,14 +938,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		active := m.activeSettingsForm()
 		if active.State == huh.StateCompleted {
+			initCmd := m.rebuildActiveTab()
 			if m.settingsActiveTab < len(m.settingsTabs)-1 {
-				m.rebuildActiveTab()
 				m.settingsActiveTab++
-			} else {
-				m.rebuildActiveTab()
 			}
+			return m, tea.Batch(cmd, initCmd)
 		} else if active.State == huh.StateAborted {
-			m.rebuildActiveTab()
+			return m, tea.Batch(cmd, m.rebuildActiveTab())
 		}
 		return m, cmd
 	}
@@ -1068,8 +1070,8 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if err != nil {
 				return worktreeCreatedMsg{err: err, identifier: issue.Identifier}
 			}
-			RunPostCreateHook(wtPath, m.cfg)
-			return worktreeCreatedMsg{path: wtPath, identifier: issue.Identifier}
+			hookErr := RunPostCreateHook(wtPath, m.cfg)
+			return worktreeCreatedMsg{path: wtPath, identifier: issue.Identifier, hookErr: hookErr}
 		}
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("x"))):
@@ -1339,7 +1341,9 @@ func (m Model) launchWithPromptCmd(issue Issue, prompt string) tea.Cmd {
 		if err != nil {
 			return worktreeCreatedMsg{err: err, identifier: issue.Identifier}
 		}
-		RunPostCreateHook(wtPath, m.cfg)
+		if err := RunPostCreateHook(wtPath, m.cfg); err != nil {
+			debugLog.Printf("post-create hook failed: %v", err)
+		}
 		return launchReadyMsg{issue: issue, wtPath: wtPath, prompt: prompt}
 	}
 }
@@ -1382,23 +1386,22 @@ func (m *Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// If aborted (Esc on first field), go to previous tab
 	active := m.activeSettingsForm()
 	if active.State == huh.StateCompleted {
+		initCmd := m.rebuildActiveTab()
 		if m.settingsActiveTab < len(m.settingsTabs)-1 {
-			m.rebuildActiveTab()
 			m.settingsActiveTab++
-		} else {
-			m.rebuildActiveTab()
 		}
+		return m, tea.Batch(cmd, initCmd)
 	} else if active.State == huh.StateAborted {
 		if m.settingsActiveTab > 0 {
-			m.rebuildActiveTab()
+			initCmd := m.rebuildActiveTab()
 			m.settingsActiveTab--
+			return m, tea.Batch(cmd, initCmd)
 		} else if !m.settingsFirstRun {
 			m.settingsTabs = [3]*huh.Form{}
 			m.view = viewList
 			return m, nil
-		} else {
-			m.rebuildActiveTab()
 		}
+		return m, tea.Batch(cmd, m.rebuildActiveTab())
 	}
 
 	return m, cmd
@@ -1924,13 +1927,28 @@ func (m *Model) buildSettingsForm() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-func (m *Model) rebuildActiveTab() {
+func (m *Model) recreatePaneManagerIfNeeded() {
+	if m.paneManager == nil {
+		return
+	}
+	if m.paneManager.maxSlots == m.cfg.MaxSlots {
+		return
+	}
+	for i, slot := range m.paneManager.Slots() {
+		if slot != nil {
+			_ = m.paneManager.CloseSlot(i)
+		}
+	}
+	m.paneManager = NewPaneManager(m.cmuxClient, m.cfg.MaxSlots)
+}
+
+func (m *Model) rebuildActiveTab() tea.Cmd {
 	w := m.width - 4
 	if w < 60 {
 		w = 60
 	}
 	m.settingsTabs[m.settingsActiveTab] = m.buildTab(m.settingsActiveTab, w)
-	m.settingsTabs[m.settingsActiveTab].Init()
+	return m.settingsTabs[m.settingsActiveTab].Init()
 }
 
 func (m Model) renderSettingsTabBar() string {
@@ -1998,9 +2016,7 @@ func (m *Model) handleSettingsCompleted() (tea.Model, tea.Cmd) {
 	m.settingsFirstRun = false
 	m.statusMsg = "Settings saved."
 	m.updateListTitle()
-	if m.paneManager != nil {
-		m.paneManager = NewPaneManager(m.cmuxClient, m.cfg.MaxSlots)
-	}
+	m.recreatePaneManagerIfNeeded()
 	cmds := []tea.Cmd{m.fetchIssues(), m.fetchWorktrees()}
 	if m.useCmux {
 		cmds = append(cmds, m.startStatusPoll())

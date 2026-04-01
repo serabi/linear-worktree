@@ -48,9 +48,13 @@ func LaunchClaudeWithPrompt(wtPath string, issue Issue, prompt string, cfg Confi
 func buildPrompt(issue Issue, cfg Config) string {
 	if cfg.PromptTemplate != "" {
 		tmpl, err := template.New("prompt").Parse(cfg.PromptTemplate)
-		if err == nil {
+		if err != nil {
+			debugLog.Printf("prompt template parse error: %v", err)
+		} else {
 			var buf bytes.Buffer
-			if err := tmpl.Execute(&buf, issue); err == nil {
+			if err := tmpl.Execute(&buf, issue); err != nil {
+				debugLog.Printf("prompt template exec error: %v", err)
+			} else {
 				return buf.String()
 			}
 		}
