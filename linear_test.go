@@ -16,7 +16,8 @@ func TestFilterModeNext(t *testing.T) {
 		{FilterAssigned, FilterAll},
 		{FilterAll, FilterTodo},
 		{FilterTodo, FilterInProgress},
-		{FilterInProgress, FilterAssigned}, // wraps around
+		{FilterInProgress, FilterUnassigned},
+		{FilterUnassigned, FilterAssigned}, // wraps around
 	}
 
 	for _, tt := range tests {

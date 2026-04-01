@@ -8,10 +8,16 @@ import (
 	"regexp"
 )
 
+type TeamEntry struct {
+	ID  string `json:"id"`
+	Key string `json:"key"`
+}
+
 type Config struct {
 	LinearAPIKey  string   `json:"linear_api_key,omitempty"`
 	TeamID        string   `json:"team_id"`
 	TeamKey       string   `json:"team_key"`
+	Teams         []TeamEntry `json:"teams,omitempty"`
 	WorktreeBase  string   `json:"worktree_base_dir"`
 	CopyFiles     []string `json:"copy_files"`
 	CopyDirs      []string `json:"copy_dirs"`
@@ -90,6 +96,11 @@ func LoadConfig() (Config, error) {
 		cfg.LinearAPIKey = os.Getenv("LINEAR_API_KEY")
 	}
 
+	// Migrate legacy single-team config to Teams slice
+	if len(cfg.Teams) == 0 && cfg.TeamID != "" && cfg.TeamKey != "" {
+		cfg.Teams = []TeamEntry{{ID: cfg.TeamID, Key: cfg.TeamKey}}
+	}
+
 	if err := validateClaudeCommand(cfg.ClaudeCommand); err != nil {
 		return cfg, err
 	}
@@ -152,5 +163,5 @@ func validateClaudeCommand(cmd string) error {
 }
 
 func (c Config) NeedsSetup() bool {
-	return c.LinearAPIKey == "" || c.TeamID == ""
+	return c.LinearAPIKey == "" || (c.TeamID == "" && len(c.Teams) == 0)
 }

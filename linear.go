@@ -239,6 +239,9 @@ var issueFilterByMode = map[FilterMode]string{
 		{ state: { type: { eq: "unstarted" } } }`,
 	FilterInProgress: `
 		{ state: { type: { eq: "started" } } }`,
+	FilterUnassigned: `
+		{ assignee: { null: true } },
+		{ state: { type: { nin: ["completed", "cancelled"] } } }`,
 }
 
 func (lc *LinearClient) GetIssues(teamID string, filter FilterMode, after string) ([]Issue, PageInfo, error) {
@@ -508,6 +511,29 @@ func (lc *LinearClient) UpdateIssueAssignee(issueID, assigneeID string) error {
 	return nil
 }
 
+func (lc *LinearClient) UnassignIssue(issueID string) error {
+	q := `
+		mutation($id: ID!) {
+			issueUpdate(id: $id, input: { assigneeId: null }) {
+				success
+			}
+		}`
+
+	var result struct {
+		IssueUpdate struct {
+			Success bool `json:"success"`
+		} `json:"issueUpdate"`
+	}
+
+	if err := lc.queryWithVars(q, map[string]any{"id": issueID}, &result); err != nil {
+		return err
+	}
+	if !result.IssueUpdate.Success {
+		return fmt.Errorf("unassign failed")
+	}
+	return nil
+}
+
 type Comment struct {
 	ID        string `json:"id"`
 	Body      string `json:"body"`
@@ -553,6 +579,7 @@ const (
 	FilterAll
 	FilterTodo
 	FilterInProgress
+	FilterUnassigned
 )
 
 func (f FilterMode) String() string {
@@ -565,11 +592,13 @@ func (f FilterMode) String() string {
 		return "○ Todo"
 	case FilterInProgress:
 		return "● In Progress"
+	case FilterUnassigned:
+		return "∅ Unassigned"
 	default:
 		return "?"
 	}
 }
 
 func (f FilterMode) Next() FilterMode {
-	return (f + 1) % 4
+	return (f + 1) % 5
 }

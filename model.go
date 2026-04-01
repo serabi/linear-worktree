@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	osexec "os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -98,6 +99,18 @@ func (i issueItem) Title() string {
 
 func (i issueItem) Description() string {
 	var parts []string
+	if i.issue.Assignee != nil {
+		name := i.issue.Assignee.DisplayName
+		if name == "" {
+			name = i.issue.Assignee.Name
+		}
+		if idx := strings.IndexByte(name, ' '); idx > 0 {
+			name = name[:idx]
+		}
+		parts = append(parts, name)
+	} else {
+		parts = append(parts, commentDimStyle.Render("unassigned"))
+	}
 	if i.issue.Project != nil {
 		parts = append(parts, i.issue.Project.Name)
 	}
@@ -120,6 +133,19 @@ func (i issueItem) Description() string {
 			}
 		}
 		parts = append(parts, fmt.Sprintf("[%d/%d]", done, n))
+	}
+	if labels := i.issue.Labels.Nodes; len(labels) > 0 {
+		maxLabels := 2
+		if len(labels) < maxLabels {
+			maxLabels = len(labels)
+		}
+		for _, l := range labels[:maxLabels] {
+			style := lipgloss.NewStyle().Foreground(lipgloss.Color(l.Color))
+			parts = append(parts, style.Render(l.Name))
+		}
+		if remaining := len(labels) - maxLabels; remaining > 0 {
+			parts = append(parts, commentDimStyle.Render(fmt.Sprintf("+%d", remaining)))
+		}
 	}
 	return strings.Join(parts, " | ")
 }
@@ -247,6 +273,11 @@ type issueAssignedMsg struct {
 	err        error
 }
 
+type issueUnassignedMsg struct {
+	identifier string
+	err        error
+}
+
 type issueStateChangedMsg struct {
 	identifier string
 	err        error
@@ -259,6 +290,15 @@ type branchIssueFoundMsg struct {
 type searchResultsMsg struct {
 	issues []Issue
 	err    error
+}
+
+type prefetchTickMsg struct {
+	seq int
+}
+
+type teamSwitchedMsg struct {
+	cfg Config
+	err error
 }
 
 // --- App state ---
@@ -275,6 +315,8 @@ const (
 	viewProjectPicker
 	viewStatePicker
 	viewSearch
+	viewLinkPicker
+	viewTeamPicker
 )
 
 
@@ -358,6 +400,19 @@ type Model struct {
 	searching    bool
 	searchTerm   string
 	savedIssues  []Issue // stash regular issues while showing search results
+
+	// Link picker
+	linkPickerForm *huh.Form
+	linkPickerURLs []string
+	linkSelected   string
+
+	// Comment prefetch
+	prefetchSeq   int
+	lastListIndex int
+
+	// Team picker
+	teamPickerForm *huh.Form
+	teamSelected   string
 }
 
 // keyMap defines keybindings for the help component.
@@ -376,6 +431,9 @@ type keyMap struct {
 	Project  key.Binding
 	State    key.Binding
 	Assign   key.Binding
+	Unassign key.Binding
+	Links    key.Binding
+	Team     key.Binding
 	Help     key.Binding
 	Quit     key.Binding
 }
@@ -396,6 +454,9 @@ func defaultKeyMap() keyMap {
 		Project:  key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "project")),
 		State:    key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "transition")),
 		Assign:   key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "assign to me")),
+		Unassign: key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "unassign")),
+		Links:    key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "links")),
+		Team:     key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "switch team")),
 		Help:     key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 		Quit:     key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
 	}
@@ -409,8 +470,8 @@ func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Navigate, k.Claude, k.Worktree, k.Close},
 		{k.Comment, k.Detail, k.Filter, k.Search},
-		{k.Project, k.State, k.Assign, k.Open},
-		{k.Refresh, k.Setup, k.Help, k.Quit},
+		{k.Project, k.State, k.Assign, k.Unassign},
+		{k.Open, k.Links, k.Team, k.Refresh, k.Setup, k.Help, k.Quit},
 	}
 }
 
@@ -624,6 +685,14 @@ func (m Model) assignToMeCmd(issueID, assigneeID, identifier string) tea.Cmd {
 	}
 }
 
+func (m Model) unassignCmd(issueID, identifier string) tea.Cmd {
+	return func() tea.Msg {
+		client := NewLinearClient(m.cfg.LinearAPIKey)
+		err := client.UnassignIssue(issueID)
+		return issueUnassignedMsg{identifier: identifier, err: err}
+	}
+}
+
 func (m Model) changeStateCmd(issueID, stateID, identifier string) tea.Cmd {
 	return func() tea.Msg {
 		client := NewLinearClient(m.cfg.LinearAPIKey)
@@ -648,18 +717,23 @@ func (m Model) detectBranchIssue() tea.Cmd {
 	}
 }
 
-func (m Model) resolveTeamCmd(apiKey, teamKey string) tea.Cmd {
+func (m Model) resolveTeamCmd(apiKey string, teamKeys []string) tea.Cmd {
 	return func() tea.Msg {
 		client := NewLinearClient(apiKey)
-		team, err := client.GetTeamByKey(teamKey)
-		if err != nil {
-			return teamsLoadedMsg{err: err}
+		var teams []TeamEntry
+		for _, k := range teamKeys {
+			team, err := client.GetTeamByKey(k)
+			if err != nil {
+				return teamsLoadedMsg{err: fmt.Errorf("team %q: %w", k, err)}
+			}
+			teams = append(teams, TeamEntry{ID: team.ID, Key: team.Key})
 		}
 
 		cfg := m.cfg
 		cfg.LinearAPIKey = apiKey
-		cfg.TeamID = team.ID
-		cfg.TeamKey = team.Key
+		cfg.Teams = teams
+		cfg.TeamID = teams[0].ID
+		cfg.TeamKey = teams[0].Key
 		if err := SaveConfig(cfg); err != nil {
 			return teamsLoadedMsg{err: err}
 		}
@@ -725,6 +799,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateStatePicker(msg)
 		case viewSearch:
 			return m.updateSearch(msg)
+		case viewLinkPicker:
+			return m.updateLinkPicker(msg)
+		case viewTeamPicker:
+			return m.updateTeamPicker(msg)
 		default:
 			return m.updateList(msg)
 		}
@@ -820,6 +898,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.startStatusPoll()
 
+	case prefetchTickMsg:
+		if msg.seq == m.prefetchSeq {
+			issue := m.selectedIssue()
+			if issue != nil && issue.ID != m.cachedCommentID {
+				return m, m.fetchCommentsCmd(issue.ID)
+			}
+		}
+		return m, nil
+
+	case teamSwitchedMsg:
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("Team switch error: %v", msg.err)
+			return m, nil
+		}
+		m.cfg = msg.cfg
+		m.flushTeamState()
+		m.statusMsg = fmt.Sprintf("Switched to %s", m.cfg.TeamKey)
+		return m, tea.Batch(m.fetchIssues(), m.fetchProjects(), m.fetchWorkflowStates())
+
 	case setupCompleteMsg:
 		m.cfg = msg.cfg
 		m.view = viewList
@@ -867,6 +964,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = fmt.Sprintf("Assign error: %v", msg.err)
 		} else {
 			m.statusMsg = fmt.Sprintf("Assigned %s to you", msg.identifier)
+			return m, m.fetchIssues()
+		}
+		return m, nil
+
+	case issueUnassignedMsg:
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("Unassign error: %v", msg.err)
+		} else {
+			m.statusMsg = fmt.Sprintf("Unassigned %s", msg.identifier)
 			return m, m.fetchIssues()
 		}
 		return m, nil
@@ -942,6 +1048,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.stateForm.State == huh.StateCompleted {
 			return m.handleStateSelected()
+		}
+		return m, cmd
+	}
+	if m.view == viewLinkPicker && m.linkPickerForm != nil {
+		form, cmd := m.linkPickerForm.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			m.linkPickerForm = f
+		}
+		if m.linkPickerForm.State == huh.StateCompleted {
+			selected := m.linkSelected
+			m.linkPickerForm = nil
+			m.view = viewList
+			if selected != "" {
+				openBrowser(selected)
+			}
+			return m, nil
+		}
+		return m, cmd
+	}
+	if m.view == viewTeamPicker && m.teamPickerForm != nil {
+		form, cmd := m.teamPickerForm.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			m.teamPickerForm = f
+		}
+		if m.teamPickerForm.State == huh.StateCompleted {
+			return m.handleTeamSelected()
 		}
 		return m, cmd
 	}
@@ -1141,10 +1273,56 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.statusMsg = fmt.Sprintf("Assigning %s to you...", issue.Identifier)
 		return m, m.assignToMeCmd(issue.ID, m.viewer.ID, issue.Identifier)
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("A"))):
+		issue := m.selectedIssue()
+		if issue == nil {
+			m.statusMsg = "No issue selected"
+			return m, nil
+		}
+		if issue.Assignee == nil {
+			m.statusMsg = fmt.Sprintf("%s is already unassigned", issue.Identifier)
+			return m, nil
+		}
+		m.statusMsg = fmt.Sprintf("Unassigning %s...", issue.Identifier)
+		return m, m.unassignCmd(issue.ID, issue.Identifier)
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("T"))):
+		if len(m.cfg.Teams) < 2 {
+			m.statusMsg = "Only one team configured (add more in settings)"
+			return m, nil
+		}
+		return m, m.showTeamPicker()
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("l"))):
+		issue := m.selectedIssue()
+		if issue == nil {
+			m.statusMsg = "No issue selected"
+			return m, nil
+		}
+		urls := extractURLs(issue.Description)
+		if len(urls) == 0 {
+			m.statusMsg = "No links found in description"
+			return m, nil
+		}
+		if len(urls) == 1 {
+			openBrowser(urls[0])
+			return m, nil
+		}
+		return m, m.showLinkPicker(urls)
 	}
 
+	prevIndex := m.list.Index()
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
+	if m.list.Index() != prevIndex {
+		m.prefetchSeq++
+		seq := m.prefetchSeq
+		prefetchCmd := tea.Tick(250*time.Millisecond, func(t time.Time) tea.Msg {
+			return prefetchTickMsg{seq: seq}
+		})
+		cmd = tea.Batch(cmd, prefetchCmd)
+	}
 	return m, cmd
 }
 
@@ -1447,6 +1625,10 @@ func (m Model) View() string {
 		return m.viewPicker("Select Project", m.projectForm)
 	case viewStatePicker:
 		return m.viewPicker("Transition State", m.stateForm)
+	case viewLinkPicker:
+		return m.viewPicker("Open Link", m.linkPickerForm)
+	case viewTeamPicker:
+		return m.viewPicker("Switch Team", m.teamPickerForm)
 	case viewSearch:
 		return m.viewSearchInput()
 	default:
@@ -1768,7 +1950,15 @@ func (m *Model) activeSettingsForm() *huh.Form {
 
 func (m *Model) initSettingsForm() {
 	m.settingsAPIKey = m.cfg.LinearAPIKey
-	m.settingsTeamKey = m.cfg.TeamKey
+	if len(m.cfg.Teams) > 0 {
+		keys := make([]string, len(m.cfg.Teams))
+		for i, t := range m.cfg.Teams {
+			keys[i] = t.Key
+		}
+		m.settingsTeamKey = strings.Join(keys, ", ")
+	} else {
+		m.settingsTeamKey = m.cfg.TeamKey
+	}
 	m.settingsWtBase = m.cfg.WorktreeBase
 	m.settingsCopyFiles = strings.Join(m.cfg.CopyFiles, ", ")
 	m.settingsCopyDirs = strings.Join(m.cfg.CopyDirs, ", ")
@@ -1805,9 +1995,9 @@ func (m *Model) buildTab(index, w int) *huh.Form {
 					EchoMode(huh.EchoModePassword).
 					Value(&m.settingsAPIKey),
 				huh.NewInput().
-					Title("Team Key").
-					Description("The short prefix for your team's issues (e.g. TSCODE). Find it in the URL: linear.app/TEAMKEY/...").
-					Placeholder("MYTEAM").
+					Title("Team Keys").
+					Description("Comma-separated team keys (e.g. TSCODE, DHMIG). First key is the default. Find keys in the URL: linear.app/TEAMKEY/...").
+					Placeholder("TSCODE, DHMIG").
 					Value(&m.settingsTeamKey),
 			),
 		).WithWidth(w).WithShowHelp(false).WithShowErrors(true)
@@ -1911,17 +2101,16 @@ func (m Model) renderSettingsTabBar() string {
 
 func (m *Model) handleSettingsCompleted() (tea.Model, tea.Cmd) {
 	apiKey := strings.TrimSpace(m.settingsAPIKey)
-	teamKey := strings.TrimSpace(m.settingsTeamKey)
+	teamKeys := splitComma(m.settingsTeamKey)
 
-	if apiKey == "" || teamKey == "" {
-		m.statusMsg = "API key and team key are required"
+	if apiKey == "" || len(teamKeys) == 0 {
+		m.statusMsg = "API key and at least one team key are required"
 		m.settingsActiveTab = 0
 		return m, nil
 	}
 
 	newCfg := m.cfg
 	newCfg.LinearAPIKey = apiKey
-	newCfg.TeamKey = teamKey
 	newCfg.WorktreeBase = strings.TrimSpace(m.settingsWtBase)
 	newCfg.CopyFiles = splitComma(m.settingsCopyFiles)
 	newCfg.CopyDirs = splitComma(m.settingsCopyDirs)
@@ -1944,10 +2133,15 @@ func (m *Model) handleSettingsCompleted() (tea.Model, tea.Cmd) {
 
 	m.settingsTabs = [3]*huh.Form{}
 
-	if teamKey != m.cfg.TeamKey || newCfg.TeamID == "" {
+	// Check if team keys changed -- need to re-resolve
+	oldKeys := make([]string, len(m.cfg.Teams))
+	for i, t := range m.cfg.Teams {
+		oldKeys[i] = t.Key
+	}
+	if strings.Join(teamKeys, ",") != strings.Join(oldKeys, ",") || newCfg.TeamID == "" {
 		m.cfg = newCfg
-		m.statusMsg = "Resolving team..."
-		return m, m.resolveTeamCmd(apiKey, teamKey)
+		m.statusMsg = "Resolving teams..."
+		return m, m.resolveTeamCmd(apiKey, teamKeys)
 	}
 
 	if err := SaveConfig(newCfg); err != nil {
@@ -2124,6 +2318,143 @@ func (m *Model) updateStatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m *Model) flushTeamState() {
+	m.issues = nil
+	m.projects = nil
+	m.workflowStates = nil
+	m.cachedComments = nil
+	m.cachedCommentID = ""
+	m.projectFilter = nil
+	m.projectName = ""
+	m.detailIssue = nil
+	m.savedIssues = nil
+	m.searchTerm = ""
+	m.searching = false
+	m.stateIssue = nil
+	m.stateForm = nil
+	m.filter = FilterAssigned
+	m.view = viewList
+	m.list.SetItems(nil)
+	m.updateListTitle()
+}
+
+func (m *Model) showTeamPicker() tea.Cmd {
+	options := make([]huh.Option[string], len(m.cfg.Teams))
+	for i, t := range m.cfg.Teams {
+		label := t.Key
+		if t.Key == m.cfg.TeamKey {
+			label += " (current)"
+		}
+		options[i] = huh.NewOption(label, t.Key)
+	}
+
+	m.teamSelected = ""
+	m.teamPickerForm = huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Switch team").
+				Options(options...).
+				Value(&m.teamSelected),
+		),
+	).WithWidth(50).WithShowHelp(false).WithShowErrors(false)
+	m.view = viewTeamPicker
+	return m.teamPickerForm.Init()
+}
+
+func (m *Model) updateTeamPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "esc" {
+		m.view = viewList
+		m.teamPickerForm = nil
+		return m, nil
+	}
+
+	form, cmd := m.teamPickerForm.Update(msg)
+	if f, ok := form.(*huh.Form); ok {
+		m.teamPickerForm = f
+	}
+
+	if m.teamPickerForm.State == huh.StateCompleted {
+		return m.handleTeamSelected()
+	}
+
+	return m, cmd
+}
+
+func (m *Model) handleTeamSelected() (tea.Model, tea.Cmd) {
+	selected := m.teamSelected
+	m.teamPickerForm = nil
+	m.view = viewList
+
+	if selected == "" || selected == m.cfg.TeamKey {
+		return m, nil
+	}
+
+	// Find the team entry and switch
+	for _, t := range m.cfg.Teams {
+		if t.Key == selected {
+			return m, m.switchTeamCmd(t)
+		}
+	}
+	return m, nil
+}
+
+func (m Model) switchTeamCmd(team TeamEntry) tea.Cmd {
+	return func() tea.Msg {
+		cfg := m.cfg
+		cfg.TeamID = team.ID
+		cfg.TeamKey = team.Key
+		if err := SaveConfig(cfg); err != nil {
+			return teamSwitchedMsg{err: err}
+		}
+		return teamSwitchedMsg{cfg: cfg}
+	}
+}
+
+func (m *Model) showLinkPicker(urls []string) tea.Cmd {
+	options := make([]huh.Option[string], len(urls))
+	for i, u := range urls {
+		options[i] = huh.NewOption(u, u)
+	}
+
+	m.linkPickerURLs = urls
+	m.linkSelected = ""
+	m.linkPickerForm = huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Open link").
+				Options(options...).
+				Value(&m.linkSelected),
+		),
+	).WithWidth(70).WithShowHelp(false).WithShowErrors(false)
+	m.view = viewLinkPicker
+	return m.linkPickerForm.Init()
+}
+
+func (m *Model) updateLinkPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "esc" {
+		m.view = viewList
+		m.linkPickerForm = nil
+		return m, nil
+	}
+
+	form, cmd := m.linkPickerForm.Update(msg)
+	if f, ok := form.(*huh.Form); ok {
+		m.linkPickerForm = f
+	}
+
+	if m.linkPickerForm.State == huh.StateCompleted {
+		selected := m.linkSelected
+		m.linkPickerForm = nil
+		m.view = viewList
+		if selected != "" {
+			openBrowser(selected)
+		}
+		return m, nil
+	}
+
+	return m, cmd
+}
+
 func (m *Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
@@ -2193,6 +2524,20 @@ func (m Model) viewPicker(title string, form *huh.Form) string {
 		lipgloss.Center, lipgloss.Center,
 		setupStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, body, status)),
 	)
+}
+
+var urlPattern = regexp.MustCompile(`https?://[^\s)>\]]+`)
+
+func extractURLs(text string) []string {
+	seen := make(map[string]bool)
+	var urls []string
+	for _, u := range urlPattern.FindAllString(text, -1) {
+		if !seen[u] {
+			seen[u] = true
+			urls = append(urls, u)
+		}
+	}
+	return urls
 }
 
 func openBrowser(url string) {
