@@ -74,10 +74,10 @@ func (lc *LinearClient) queryWithVars(q string, vars map[string]any, result inte
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("Linear API returned %d", resp.StatusCode)
+		return fmt.Errorf("linear API returned %d", resp.StatusCode)
 	}
 
 	var gqlResp struct {
