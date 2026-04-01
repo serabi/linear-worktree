@@ -96,6 +96,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateStatePicker(msg)
 		case viewFilterPicker:
 			return m.updateFilterPicker(msg)
+		case viewSortPicker:
+			return m.updateSortPicker(msg)
 		case viewSearch:
 			return m.updateSearch(msg)
 		case viewLinkList:
@@ -218,8 +220,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = fmt.Sprintf("Team switch error: %v", msg.err)
 			return m, nil
 		}
+		m.saveTeamState()
 		m.cfg = msg.cfg
 		m.flushTeamState()
+		if m.restoreTeamState() {
+			m.statusMsg = m.buildStatusLine()
+			return m, nil
+		}
 		m.loading = true
 		m.loadingLabel = fmt.Sprintf("Loading %s...", m.cfg.TeamKey)
 		return m, tea.Batch(m.fetchIssues(), m.fetchProjects(), m.fetchWorkflowStates(), m.spinner.Tick)
@@ -387,6 +394,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 	}
+	if m.view == viewSortPicker && m.sortForm != nil {
+		form, cmd := m.sortForm.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			m.sortForm = f
+		}
+		if m.sortForm.State == huh.StateCompleted {
+			return m.handleSortSelected()
+		}
+		return m, cmd
+	}
 
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
@@ -440,6 +457,9 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("s"))):
 		return m, m.buildSettingsForm()
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("o"))):
+		return m, m.showSortPicker()
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("p"))):
 		return m, m.showProjectPicker()
@@ -556,13 +576,27 @@ func (m *Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.showDetailLinks()
 		}
 		return m, nil
-	case "t":
+	case "s":
 		if m.detailIssue != nil {
 			m.stateIssue = m.detailIssue
 			if len(m.workflowStates) > 0 {
 				return m, m.showStatePicker()
 			}
 			return m, m.fetchWorkflowStates()
+		}
+		return m, nil
+	case "r":
+		if m.detailIssue != nil {
+			m.loading = true
+			m.loadingLabel = "Loading comments..."
+			return m, m.fetchCommentsCmd(m.detailIssue.ID)
+		}
+		return m, nil
+	case "o":
+		if m.detailIssue != nil {
+			m.commentSortAsc = !m.commentSortAsc
+			contentWidth := m.width - 6
+			m.detailViewport.SetContent(m.buildDetailContent(m.detailIssue, contentWidth))
 		}
 		return m, nil
 	}

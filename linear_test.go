@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -137,7 +138,7 @@ func TestLinearClientGetIssues(t *testing.T) {
 		},
 	}
 
-	issues, _, err := client.GetIssues("team-1", FilterAll, "")
+	issues, _, err := client.GetIssues("team-1", FilterAll, SortUpdatedAt, "")
 	if err != nil {
 		t.Fatalf("GetIssues() error: %v", err)
 	}
@@ -241,7 +242,7 @@ func TestGraphQLVariablesAreSent(t *testing.T) {
 		},
 	}
 
-	if _, _, err := client.GetIssues("team-abc-123", FilterAll, ""); err != nil {
+	if _, _, err := client.GetIssues("team-abc-123", FilterAll, SortUpdatedAt, ""); err != nil {
 		t.Fatalf("GetIssues() error: %v", err)
 	}
 
@@ -331,7 +332,7 @@ func TestLinearClientGetIssuesByProject(t *testing.T) {
 	})
 	defer server.Close()
 
-	issues, pageInfo, err := testClient(server).GetIssuesByProject("team-1", "proj-1", "", FilterAll)
+	issues, pageInfo, err := testClient(server).GetIssuesByProject("team-1", "proj-1", "", FilterAll, SortUpdatedAt)
 	if err != nil {
 		t.Fatalf("GetIssuesByProject() error: %v", err)
 	}
@@ -359,7 +360,7 @@ func TestLinearClientGetIssuesWithNoProject(t *testing.T) {
 	})
 	defer server.Close()
 
-	issues, pageInfo, err := testClient(server).GetIssuesWithNoProject("team-1", FilterAll, "")
+	issues, pageInfo, err := testClient(server).GetIssuesWithNoProject("team-1", FilterAll, SortUpdatedAt, "")
 	if err != nil {
 		t.Fatalf("GetIssuesWithNoProject() error: %v", err)
 	}
@@ -463,7 +464,7 @@ func TestLinearClientPagination(t *testing.T) {
 	client := testClient(server)
 
 	// First page
-	issues, pageInfo, err := client.GetIssues("team-1", FilterAll, "")
+	issues, pageInfo, err := client.GetIssues("team-1", FilterAll, SortUpdatedAt, "")
 	if err != nil {
 		t.Fatalf("page 1 error: %v", err)
 	}
@@ -478,7 +479,7 @@ func TestLinearClientPagination(t *testing.T) {
 	}
 
 	// Second page
-	issues2, pageInfo2, err := client.GetIssues("team-1", FilterAll, pageInfo.EndCursor)
+	issues2, pageInfo2, err := client.GetIssues("team-1", FilterAll, SortUpdatedAt, pageInfo.EndCursor)
 	if err != nil {
 		t.Fatalf("page 2 error: %v", err)
 	}
@@ -527,6 +528,91 @@ func TestLinearClientGetIssueByIDNotFound(t *testing.T) {
 	_, err := testClient(server).GetIssueByID("nonexistent")
 	if err == nil {
 		t.Fatal("expected error for missing issue, got nil")
+	}
+}
+
+func TestSortModeNext(t *testing.T) {
+	tests := []struct {
+		mode     SortMode
+		expected SortMode
+	}{
+		{SortUpdatedAt, SortCreatedAt},
+		{SortCreatedAt, SortPriority},
+		{SortPriority, SortUpdatedAt},
+	}
+	for _, tt := range tests {
+		result := tt.mode.Next()
+		if result != tt.expected {
+			t.Errorf("SortMode(%d).Next() = %d, want %d", tt.mode, result, tt.expected)
+		}
+	}
+}
+
+func TestSortModeString(t *testing.T) {
+	tests := []struct {
+		mode SortMode
+		want string
+	}{
+		{SortUpdatedAt, "Updated"},
+		{SortCreatedAt, "Created"},
+		{SortPriority, "Priority"},
+		{SortMode(99), "?"},
+	}
+	for _, tt := range tests {
+		if got := tt.mode.String(); got != tt.want {
+			t.Errorf("SortMode(%d).String() = %q, want %q", tt.mode, got, tt.want)
+		}
+	}
+}
+
+func TestGetIssuesWithPrioritySort(t *testing.T) {
+	var capturedVars map[string]any
+	var capturedQuery string
+	server := mockLinearServer(func(query string, vars map[string]any) (int, interface{}) {
+		capturedVars = vars
+		capturedQuery = query
+		return 200, map[string]interface{}{
+			"issues": map[string]interface{}{
+				"nodes":    []interface{}{},
+				"pageInfo": map[string]interface{}{"hasNextPage": false, "endCursor": ""},
+			},
+		}
+	})
+	defer server.Close()
+
+	_, _, err := testClient(server).GetIssues("team-1", FilterAll, SortPriority, "")
+	if err != nil {
+		t.Fatalf("GetIssues() error: %v", err)
+	}
+
+	if capturedVars["sort"] == nil {
+		t.Fatal("expected 'sort' variable for priority sort mode")
+	}
+	if !strings.Contains(capturedQuery, "$sort") {
+		t.Error("expected query to contain $sort variable for priority sort")
+	}
+}
+
+func TestGetIssuesWithCreatedAtSort(t *testing.T) {
+	var capturedQuery string
+	server := mockLinearServer(func(query string, vars map[string]any) (int, interface{}) {
+		capturedQuery = query
+		return 200, map[string]interface{}{
+			"issues": map[string]interface{}{
+				"nodes":    []interface{}{},
+				"pageInfo": map[string]interface{}{"hasNextPage": false, "endCursor": ""},
+			},
+		}
+	})
+	defer server.Close()
+
+	_, _, err := testClient(server).GetIssues("team-1", FilterAll, SortCreatedAt, "")
+	if err != nil {
+		t.Fatalf("GetIssues() error: %v", err)
+	}
+
+	if !strings.Contains(capturedQuery, "createdAt") {
+		t.Error("expected query to contain 'createdAt' orderBy for created sort")
 	}
 }
 

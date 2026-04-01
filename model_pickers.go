@@ -167,6 +167,64 @@ func (m *Model) handleFilterSelected() (tea.Model, tea.Cmd) {
 	return m, tea.Batch(m.fetchIssues(), m.spinner.Tick)
 }
 
+func (m *Model) showSortPicker() tea.Cmd {
+	options := []huh.Option[string]{
+		huh.NewOption("Recently updated", "updated"),
+		huh.NewOption("Recently created", "created"),
+		huh.NewOption("Priority", "priority"),
+	}
+
+	m.sortForm = huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Key("sort").
+				Title("Sort issues").
+				Options(options...),
+		),
+	).WithWidth(50).WithShowHelp(false).WithShowErrors(false)
+	m.view = viewSortPicker
+	return m.sortForm.Init()
+}
+
+func (m *Model) handleSortSelected() (tea.Model, tea.Cmd) {
+	selected := m.sortForm.GetString("sort")
+	m.sortForm = nil
+	m.view = viewList
+
+	switch selected {
+	case "updated":
+		m.sortMode = SortUpdatedAt
+	case "created":
+		m.sortMode = SortCreatedAt
+	case "priority":
+		m.sortMode = SortPriority
+	default:
+		return m, nil
+	}
+
+	m.updateListTitle()
+	m.loading = true
+	m.loadingLabel = "Loading..."
+	return m, tea.Batch(m.fetchIssues(), m.spinner.Tick)
+}
+
+func (m *Model) updateSortPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "esc" {
+		m.view = viewList
+		m.sortForm = nil
+		return m, nil
+	}
+
+	form, cmd := m.sortForm.Update(msg)
+	if f, ok := form.(*huh.Form); ok {
+		m.sortForm = f
+	}
+	if m.sortForm.State == huh.StateCompleted {
+		return m.handleSortSelected()
+	}
+	return m, cmd
+}
+
 func (m *Model) updateFilterPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "esc" {
 		m.view = viewList

@@ -18,7 +18,7 @@ func newDetailRenderContext(width int) detailRenderContext {
 	return detailRenderContext{
 		width: width,
 		divider: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#444")).
+			Foreground(faintColor).
 			Width(width).
 			Render(strings.Repeat("─", width)),
 	}
@@ -29,11 +29,11 @@ func (ctx detailRenderContext) dim(text string) string {
 }
 
 func (ctx detailRenderContext) blocker(text string) string {
-	return lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444")).Render(text)
+	return lipgloss.NewStyle().Foreground(redColor).Render(text)
 }
 
 func (ctx detailRenderContext) link(text string) string {
-	return lipgloss.NewStyle().Foreground(lipgloss.Color("#06B6D4")).Render(text)
+	return lipgloss.NewStyle().Foreground(identCyanColor).Render(text)
 }
 
 func (ctx detailRenderContext) section(title string) string {
@@ -45,7 +45,7 @@ func (ctx detailRenderContext) section(title string) string {
 
 func (ctx detailRenderContext) field(label, value string) string {
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#888")).
+		Foreground(dimColor).
 		Width(14).
 		Align(lipgloss.Right).
 		Render(label) + "  " + value + "\n"
@@ -84,12 +84,12 @@ func (m Model) writeDetailHeader(b *strings.Builder, issue *Issue, ctx detailRen
 	b.WriteString(issueIdentStyle.Render(issue.Identifier))
 	b.WriteString("  ")
 
-	stateColor := "#EAB308"
+	var stateColor lipgloss.TerminalColor = yellowColor
 	if issue.State.Color != "" {
-		stateColor = issue.State.Color
+		stateColor = lipgloss.Color(issue.State.Color)
 	}
 	b.WriteString(lipgloss.NewStyle().
-		Foreground(lipgloss.Color(stateColor)).
+		Foreground(stateColor).
 		Bold(true).
 		Render(issue.State.Name))
 	b.WriteString("\n\n")
@@ -151,7 +151,7 @@ func (m Model) writeDetailMetadata(b *strings.Builder, issue *Issue, ctx detailR
 		b.WriteString(ctx.field("Updated", relativeTime(issue.UpdatedAt)))
 	}
 	if issue.BranchName != "" {
-		b.WriteString(ctx.field("Branch", lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")).Render(issue.BranchName)))
+		b.WriteString(ctx.field("Branch", lipgloss.NewStyle().Foreground(greenColor).Render(issue.BranchName)))
 	}
 	if issue.URL != "" {
 		b.WriteString(ctx.field("URL", ctx.link(issue.URL)))
@@ -166,7 +166,7 @@ func formatDueDate(dueDate string, ctx detailRenderContext) string {
 			return ctx.blocker(fmt.Sprintf("%s (OVERDUE by %dd)", dueDate, -days))
 		case days <= 3:
 			return lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#EAB308")).
+				Foreground(yellowColor).
 				Render(fmt.Sprintf("%s (%dd)", dueDate, days))
 		default:
 			return fmt.Sprintf("%s (%dd)", dueDate, days)
@@ -235,10 +235,18 @@ func (m Model) writeDetailComments(b *strings.Builder, issue *Issue, ctx detailR
 
 	b.WriteString(ctx.section(fmt.Sprintf("Comments (%d)", len(m.cachedComments))))
 	commentSep := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#333")).
+		Foreground(faintColor).
 		Render(strings.Repeat("─", ctx.width-4))
 
-	for i, comment := range m.cachedComments {
+	comments := m.cachedComments
+	if !m.commentSortAsc {
+		comments = make([]Comment, len(m.cachedComments))
+		for j := range m.cachedComments {
+			comments[len(m.cachedComments)-1-j] = m.cachedComments[j]
+		}
+	}
+
+	for i, comment := range comments {
 		name := comment.User.DisplayName
 		if name == "" {
 			name = comment.User.Name
@@ -249,7 +257,7 @@ func (m Model) writeDetailComments(b *strings.Builder, issue *Issue, ctx detailR
 		nameRendered := ctx.dim(name)
 		if isMe {
 			nameRendered = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#22C55E")).
+				Foreground(greenColor).
 				Bold(true).
 				Render(name)
 		}
@@ -263,7 +271,7 @@ func (m Model) writeDetailComments(b *strings.Builder, issue *Issue, ctx detailR
 		body := m.renderMarkdown(comment.Body, ctx.width-4)
 		if isMe {
 			for _, line := range strings.Split(body, "\n") {
-				b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")).Render("  |") + " " + line + "\n")
+				b.WriteString(lipgloss.NewStyle().Foreground(greenColor).Render("  |") + " " + line + "\n")
 			}
 		} else {
 			for _, line := range strings.Split(body, "\n") {
@@ -271,7 +279,7 @@ func (m Model) writeDetailComments(b *strings.Builder, issue *Issue, ctx detailR
 			}
 		}
 
-		if i < len(m.cachedComments)-1 {
+		if i < len(comments)-1 {
 			b.WriteString("  " + commentSep + "\n")
 		}
 	}

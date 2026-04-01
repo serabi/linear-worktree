@@ -18,6 +18,21 @@ import (
 )
 
 var (
+	// Adaptive colors for light/dark terminal themes.
+	// AdaptiveColor: {Light, Dark}
+	// Adaptive colors for WCAG AA contrast on both light and dark backgrounds.
+	// Light values target >= 4.5:1 against #F5F5F5; dark values target visibility on #1E1E1E.
+	dimColor       = lipgloss.AdaptiveColor{Light: "#444", Dark: "#888"}
+	subtleColor    = lipgloss.AdaptiveColor{Light: "#555", Dark: "#555"}
+	mutedColor     = lipgloss.AdaptiveColor{Light: "#555", Dark: "#666"}
+	faintColor     = lipgloss.AdaptiveColor{Light: "#646464", Dark: "#444"}
+	yellowColor    = lipgloss.AdaptiveColor{Light: "#B45309", Dark: "#EAB308"}
+	identCyanColor = lipgloss.AdaptiveColor{Light: "#0E7490", Dark: "#06B6D4"}
+	greenColor     = lipgloss.AdaptiveColor{Light: "#15803D", Dark: "#22C55E"}
+	redColor       = lipgloss.AdaptiveColor{Light: "#B91C1C", Dark: "#EF4444"}
+	orangeColor    = lipgloss.AdaptiveColor{Light: "#C2410C", Dark: "#F97316"}
+	blueColor      = lipgloss.AdaptiveColor{Light: "#2563EB", Dark: "#3B82F6"}
+
 	appStyle = lipgloss.NewStyle().Padding(0, 1)
 
 	titleStyle = lipgloss.NewStyle().
@@ -26,20 +41,20 @@ var (
 			Padding(0, 1)
 
 	statusBarStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#888")).
+			Foreground(dimColor).
 			Padding(0, 1)
 
 	issueIdentStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#06B6D4")).
+			Foreground(identCyanColor).
 			Bold(true)
 
 	worktreeMarker = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#22C55E"))
+			Foreground(greenColor)
 
-	urgentStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444"))
-	highStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#F97316"))
-	mediumStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#EAB308"))
-	lowStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#3B82F6"))
+	urgentStyle = lipgloss.NewStyle().Foreground(redColor)
+	highStyle   = lipgloss.NewStyle().Foreground(orangeColor)
+	mediumStyle = lipgloss.NewStyle().Foreground(yellowColor)
+	lowStyle    = lipgloss.NewStyle().Foreground(blueColor)
 
 	setupStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -47,12 +62,12 @@ var (
 			Padding(1, 2).
 			Width(50)
 
-	slotRunningStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E"))
-	slotWaitingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#EAB308"))
-	slotIdleStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#888"))
-	slotEmptyStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#444"))
+	slotRunningStyle = lipgloss.NewStyle().Foreground(greenColor)
+	slotWaitingStyle = lipgloss.NewStyle().Foreground(yellowColor)
+	slotIdleStyle    = lipgloss.NewStyle().Foreground(dimColor)
+	slotEmptyStyle   = lipgloss.NewStyle().Foreground(faintColor)
 
-	commentDimStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#888"))
+	commentDimStyle = lipgloss.NewStyle().Foreground(dimColor)
 
 	activeTabStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -62,9 +77,9 @@ var (
 			Padding(0, 2)
 
 	inactiveTabStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#888")).
+				Foreground(dimColor).
 				Border(lipgloss.NormalBorder(), false, false, true, false).
-				BorderForeground(lipgloss.Color("#444")).
+				BorderForeground(faintColor).
 				Padding(0, 2)
 )
 
@@ -192,15 +207,15 @@ func (l linkItem) FilterValue() string { return l.label }
 func statusIcon(stateType string) string {
 	switch stateType {
 	case "backlog":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#555")).Render("○")
+		return lipgloss.NewStyle().Foreground(subtleColor).Render("○")
 	case "unstarted":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#888")).Render("○")
+		return lipgloss.NewStyle().Foreground(dimColor).Render("○")
 	case "started":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#EAB308")).Render("●")
+		return lipgloss.NewStyle().Foreground(yellowColor).Render("●")
 	case "completed":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")).Render("✓")
+		return lipgloss.NewStyle().Foreground(greenColor).Render("✓")
 	case "cancelled":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#666")).Render("✗")
+		return lipgloss.NewStyle().Foreground(mutedColor).Render("✗")
 	default:
 		return "?"
 	}
@@ -343,6 +358,7 @@ const (
 	viewFilterPicker
 	viewSearch
 	viewLinkList
+	viewSortPicker
 )
 
 type settingsDraft struct {
@@ -359,17 +375,30 @@ type settingsDraft struct {
 	prompt     string
 }
 
+type teamState struct {
+	issues         []Issue
+	projects       []Project
+	workflowStates []WorkflowState
+	filter         FilterMode
+	projectFilter  *string
+	projectName    string
+	listIndex      int
+}
+
 type Model struct {
 	cfg              Config
 	list             list.Model
 	issues           []Issue
 	worktreeBranches map[string]bool
 	filter           FilterMode
+	sortMode         SortMode
 	view             viewMode
 	statusMsg        string
 	detailIssue      *Issue
 	width            int
 	height           int
+
+	teamCache map[string]*teamState
 
 	cmuxClient  *CmuxClient
 	paneManager *PaneManager
@@ -380,6 +409,7 @@ type Model struct {
 
 	cachedComments  []Comment
 	cachedCommentID string
+	commentSortAsc  bool
 
 	detailViewport viewport.Model
 
@@ -412,6 +442,7 @@ type Model struct {
 	stateIssue     *Issue
 
 	filterForm *huh.Form
+	sortForm   *huh.Form
 
 	searchInput textinput.Model
 	searching   bool
@@ -560,6 +591,7 @@ func (m Model) buildStatusLine() string {
 	}
 	parts = append(parts, fmt.Sprintf("%d issues", len(m.issues)))
 	parts = append(parts, m.filter.String())
+	parts = append(parts, m.sortMode.String())
 	if m.useCmux && m.paneManager != nil {
 		parts = append(parts, fmt.Sprintf("slots: %d/%d", m.paneManager.ActiveCount(), m.cfg.MaxSlots))
 	}
@@ -579,6 +611,44 @@ func (m *Model) updateListTitle() {
 	if m.list.Title == "" {
 		m.list.Title = "Issues"
 	}
+}
+
+func (m *Model) saveTeamState() {
+	if m.cfg.TeamKey == "" || m.issues == nil {
+		return
+	}
+	issues := make([]Issue, len(m.issues))
+	copy(issues, m.issues)
+	projects := make([]Project, len(m.projects))
+	copy(projects, m.projects)
+	states := make([]WorkflowState, len(m.workflowStates))
+	copy(states, m.workflowStates)
+	m.teamCache[m.cfg.TeamKey] = &teamState{
+		issues:         issues,
+		projects:       projects,
+		workflowStates: states,
+		filter:         m.filter,
+		projectFilter:  m.projectFilter,
+		projectName:    m.projectName,
+		listIndex:      m.list.Index(),
+	}
+}
+
+func (m *Model) restoreTeamState() bool {
+	ts, ok := m.teamCache[m.cfg.TeamKey]
+	if !ok {
+		return false
+	}
+	m.issues = ts.issues
+	m.projects = ts.projects
+	m.workflowStates = ts.workflowStates
+	m.filter = ts.filter
+	m.projectFilter = ts.projectFilter
+	m.projectName = ts.projectName
+	m.rebuildList()
+	m.list.Select(ts.listIndex)
+	m.updateListTitle()
+	return true
 }
 
 func (m *Model) flushTeamState() {

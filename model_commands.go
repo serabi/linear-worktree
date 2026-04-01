@@ -14,13 +14,13 @@ func (m Model) fetchIssues() tea.Cmd {
 		client := NewLinearClient(m.cfg.LinearAPIKey)
 		if m.projectFilter != nil {
 			if *m.projectFilter == "none" {
-				issues, _, err := client.GetIssuesWithNoProject(m.cfg.TeamID, m.filter, "")
+				issues, _, err := client.GetIssuesWithNoProject(m.cfg.TeamID, m.filter, m.sortMode, "")
 				return issuesLoadedMsg{issues: issues, err: err}
 			}
-			issues, _, err := client.GetIssuesByProject(m.cfg.TeamID, *m.projectFilter, "", m.filter)
+			issues, _, err := client.GetIssuesByProject(m.cfg.TeamID, *m.projectFilter, "", m.filter, m.sortMode)
 			return issuesLoadedMsg{issues: issues, err: err}
 		}
-		issues, _, err := client.GetIssues(m.cfg.TeamID, m.filter, "")
+		issues, _, err := client.GetIssues(m.cfg.TeamID, m.filter, m.sortMode, "")
 		return issuesLoadedMsg{issues: issues, err: err}
 	}
 }
