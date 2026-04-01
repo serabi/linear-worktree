@@ -90,7 +90,9 @@ func CreateWorktree(identifier string, cfg Config) (string, error) {
 		return wtPath, nil
 	}
 
-	_ = os.MkdirAll(worktreeBase, 0700)
+	if err := os.MkdirAll(worktreeBase, 0700); err != nil {
+		return "", fmt.Errorf("creating worktree base: %w", err)
+	}
 
 	// Check if branch exists
 	checkCmd := exec.Command("git", "branch", "--list", branchName)
@@ -183,12 +185,19 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = out.Close() }()
 
-	if _, err = io.Copy(out, in); err != nil {
-		return err
+	_, copyErr := io.Copy(out, in)
+	closeErr := out.Close()
+	if copyErr != nil {
+		if closeErr != nil {
+			return fmt.Errorf("copying file: %w (also failed to close destination: %v)", copyErr, closeErr)
+		}
+		return copyErr
 	}
-	return out.Close()
+	if closeErr != nil {
+		return closeErr
+	}
+	return nil
 }
 
 func copyDir(src, dst string) error {
