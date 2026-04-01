@@ -28,7 +28,9 @@ func TestStoreAndRetrieveAPIKey(t *testing.T) {
 }
 
 func TestDeleteAPIKey(t *testing.T) {
-	storeAPIKey("lin_api_todelete")
+	if err := storeAPIKey("lin_api_todelete"); err != nil {
+		t.Fatalf("storeAPIKey() error: %v", err)
+	}
 
 	err := deleteAPIKey()
 	if err != nil {
@@ -43,7 +45,7 @@ func TestDeleteAPIKey(t *testing.T) {
 
 func TestRetrieveAPIKeyNotFound(t *testing.T) {
 	// Clean slate — delete in case a previous test left something
-	deleteAPIKey()
+	_ = deleteAPIKey()
 
 	_, err := retrieveAPIKey()
 	if !isKeyringNotFound(err) {

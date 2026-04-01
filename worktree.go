@@ -90,7 +90,7 @@ func CreateWorktree(identifier string, cfg Config) (string, error) {
 		return wtPath, nil
 	}
 
-	os.MkdirAll(worktreeBase, 0700)
+	_ = os.MkdirAll(worktreeBase, 0700)
 
 	// Check if branch exists
 	checkCmd := exec.Command("git", "branch", "--list", branchName)
@@ -113,12 +113,12 @@ func CreateWorktree(identifier string, cfg Config) (string, error) {
 	for _, f := range cfg.CopyFiles {
 		src := filepath.Join(root, f)
 		dst := filepath.Join(wtPath, f)
-		copyFile(src, dst)
+		_ = copyFile(src, dst)
 	}
 	for _, d := range cfg.CopyDirs {
 		src := filepath.Join(root, d)
 		dst := filepath.Join(wtPath, d)
-		copyDir(src, dst)
+		_ = copyDir(src, dst)
 	}
 
 	return wtPath, nil

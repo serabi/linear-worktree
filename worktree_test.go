@@ -41,7 +41,9 @@ func TestCreateWorktree(t *testing.T) {
 	}
 
 	// Create a test file to copy
-	os.WriteFile(filepath.Join(repoDir, ".env"), []byte("SECRET=123"), 0644)
+	if err := os.WriteFile(filepath.Join(repoDir, ".env"), []byte("SECRET=123"), 0644); err != nil {
+		t.Fatalf("write .env: %v", err)
+	}
 	cfg.CopyFiles = []string{".env"}
 
 	// Change to repo dir for FindRepoRoot
@@ -164,7 +166,9 @@ func TestCopyFile(t *testing.T) {
 	src := filepath.Join(tmpDir, "source.txt")
 	dst := filepath.Join(tmpDir, "dest.txt")
 
-	os.WriteFile(src, []byte("hello world"), 0755)
+	if err := os.WriteFile(src, []byte("hello world"), 0755); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
 
 	err := copyFile(src, dst)
 	if err != nil {
@@ -192,9 +196,15 @@ func TestCopyDir(t *testing.T) {
 	srcDir := filepath.Join(tmpDir, "src")
 	dstDir := filepath.Join(tmpDir, "dst")
 
-	os.MkdirAll(filepath.Join(srcDir, "sub"), 0755)
-	os.WriteFile(filepath.Join(srcDir, "file1.txt"), []byte("one"), 0644)
-	os.WriteFile(filepath.Join(srcDir, "sub", "file2.txt"), []byte("two"), 0644)
+	if err := os.MkdirAll(filepath.Join(srcDir, "sub"), 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "file1.txt"), []byte("one"), 0644); err != nil {
+		t.Fatalf("write file1: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "sub", "file2.txt"), []byte("two"), 0644); err != nil {
+		t.Fatalf("write file2: %v", err)
+	}
 
 	err := copyDir(srcDir, dstDir)
 	if err != nil {
