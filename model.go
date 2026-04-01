@@ -416,6 +416,9 @@ type Model struct {
 	// Comment prefetch
 	prefetchSeq   int
 	lastListIndex int
+
+	// Demo mode
+	demo bool
 }
 
 // keyMap defines keybindings for the help component.
@@ -574,6 +577,11 @@ func (m Model) Init() tea.Cmd {
 		}
 		return tea.Batch(cmds...)
 	}
+	if m.demo {
+		return func() tea.Msg {
+			return issuesLoadedMsg{issues: DemoIssues()}
+		}
+	}
 	cmds := []tea.Cmd{
 		m.fetchIssues(),
 		m.fetchWorktrees(),
@@ -651,6 +659,14 @@ func (m Model) postCommentCmd(issueID, body string, identifier string) tea.Cmd {
 }
 
 func (m Model) fetchCommentsCmd(issueID string) tea.Cmd {
+	if m.demo {
+		return func() tea.Msg {
+			if issueID == "demo-1" {
+				return commentsLoadedMsg{issueID: issueID, comments: DemoComments()}
+			}
+			return commentsLoadedMsg{issueID: issueID}
+		}
+	}
 	return func() tea.Msg {
 		client := NewLinearClient(m.cfg.LinearAPIKey)
 		comments, err := client.GetComments(issueID)

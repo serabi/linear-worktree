@@ -1,114 +1,144 @@
 # linear-worktree
 
-A TUI for browsing Linear issues and spawning git worktrees with Claude Code sessions in an E-layout.
+A terminal UI for browsing Linear issues and launching git worktrees with Claude Code sessions.
 
-Built with Go + [Bubble Tea](https://github.com/charmbracelet/bubbletea) + [Bubbles](https://github.com/charmbracelet/bubbles) + [Lip Gloss](https://github.com/charmbracelet/lipgloss).
+Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea), [Bubbles](https://github.com/charmbracelet/bubbles), and [Lip Gloss](https://github.com/charmbracelet/lipgloss).
+
+![linear-worktree demo](demo/gif/hero.gif)
+
+## Features
+
+- **Issue browsing** with status icons, priority indicators, labels, and fuzzy search
+- **Detail panel** showing full descriptions and comments with Markdown rendering
+- **Worktree creation** from any issue -- auto-creates branch, copies config files
+- **Claude Code sessions** launched directly into worktrees with custom prompts
+- **E-layout** -- TUI on the left, up to 4 stacked Claude sessions on the right
+- **Live agent status** -- see which sessions are running, idle, or waiting for input
+- **Multi-team support** -- switch between Linear teams with number keys
+- **Comments** -- post comments to Linear directly from the TUI
+- **Assign/unassign** -- manage issue ownership without leaving the terminal
+- **Project filtering** -- scope the issue list to specific projects
+- **Server-side search** -- find issues across the entire team
+
+![features](demo/gif/features.gif)
 
 ## Install
 
 ```bash
-cd linear-worktree-go
-go mod tidy
+go install github.com/sarahwolff/linear-worktree@latest
+```
+
+Or build from source:
+
+```bash
+git clone https://github.com/sarahwolff/linear-worktree.git
+cd linear-worktree
 go build -o linear-worktree .
 ```
 
-## Usage
+## Quick Start
 
 ```bash
 ./linear-worktree
 ```
 
-On first run, you'll be prompted for your Linear API key and team key.
+On first run, you'll be prompted for your Linear API key and team. Your API key is stored in the OS keychain (macOS Keychain / Linux Secret Service), not in a config file.
 
-### The E-Layout (cmux mode)
+To try the TUI without a Linear account:
 
-When running inside cmux, the TUI manages an E-shaped layout:
-
-```
-┌──────────┬──────────────────────┐
-│          │  worktree 1 (claude) │
-│          ├──────────────────────┤
-│  TUI     │  worktree 2 (claude) │
-│  (this)  ├──────────────────────┤
-│          │  worktree 3 (claude) │
-└──────────┴──────────────────────┘
+```bash
+./linear-worktree --demo
 ```
 
-- Left 1/3: the TUI (always visible)
-- Right 2/3: up to 3 stacked Claude Code sessions
-- Each slot shows live status (running/idle/waiting)
+## E-Layout
+
+When running inside [cmux](https://github.com/sarahwolff/cmux), linear-worktree manages an E-shaped terminal layout:
+
+```
++------------+------------------------+
+|            |  worktree 1 (claude)   |
+|            +------------------------+
+|  TUI       |  worktree 2 (claude)   |
+|  (this)    +------------------------+
+|            |  worktree 3 (claude)   |
++------------+------------------------+
+```
+
+- **Left third**: the TUI, always visible
+- **Right two-thirds**: up to 4 stacked Claude Code sessions
+- Each slot shows live status: running, idle, or waiting for input
 - Closing a slot auto-expands the remaining ones
 
-Without cmux, falls back to tmux sessions.
+Without cmux, falls back to launching tmux sessions.
 
 ## Keybindings
 
+### Navigation
+
 | Key | Action |
 |-----|--------|
-| `j/k` or `↑/↓` | Navigate issues |
-| `/` | Filter/search issues (fuzzy) |
-| `Tab` | Cycle filter (assigned → all → todo → in progress) |
-| `c` | Create worktree + launch Claude in E-layout slot |
+| `j`/`k` or `Up`/`Down` | Navigate issues |
+| `/` | Fuzzy filter issue list |
+| `S` | Server-side search |
+| `Tab` | Cycle filter: Assigned > All > Todo > In Progress > Unassigned |
+| `f` | Open filter picker |
+| `p` | Filter by project |
+| `1`-`9` | Switch teams |
+
+### Actions
+
+| Key | Action |
+|-----|--------|
+| `c` | Launch Claude Code in worktree (opens menu) |
 | `w` | Create worktree only |
-| `x` | Close worktree slot (cmux mode) |
-| `m` | Add comment to selected issue |
-| `d` | Toggle detail panel (description + comments) |
+| `x` | Close worktree slot |
+| `a` | Assign issue to me |
+| `A` | Unassign issue |
+| `m` | Post comment |
 | `g` | Open issue in browser |
-| `r` | Refresh issues from Linear |
-| `s` | Setup / reconfigure |
+| `l` | Open links from description |
+
+### Views
+
+| Key | Action |
+|-----|--------|
+| `d` / `Enter` | Toggle detail panel |
+| `r` | Refresh issues |
+| `s` | Settings |
+| `?` | Toggle help |
 | `q` | Quit |
 
-## Features
-
-- **Issue browsing** — status icons, priority indicators, identifiers, fuzzy search
-- **🌳 Worktree markers** — see which issues already have worktrees
-- **E-layout** — TUI on left, up to 3 Claude sessions stacked on right (cmux)
-- **Slot status** — live monitoring of each Claude session (running ● / idle ○ / waiting ◐)
-- **Hard cap at 3** — prevents overload, close a slot to open a new one
-- **Comments** — post comments to Linear issues directly from the TUI (`m` key)
-- **Detail panel** — toggle with `d` to see full issue info + recent comments
-- **Worktree management** — auto-creates branch, copies config files (.env, .claude/)
-- **Fallback** — uses tmux if cmux isn't available
-
-## Config
+## Configuration
 
 Stored at `~/.config/linear-worktree/config.json`:
 
 ```json
 {
-  "team_id": "...",
-  "team_key": "MYTEAM",
+  "teams": [
+    {"id": "...", "key": "MYTEAM"}
+  ],
   "worktree_base_dir": "../worktrees",
   "copy_files": [".env", ".envrc"],
   "copy_dirs": [".claude"],
   "claude_command": "claude",
-  "branch_prefix": "feature/"
+  "claude_args": "",
+  "branch_prefix": "feature/",
+  "max_slots": 3,
+  "post_create_hook": "",
+  "prompt_template": ""
 }
 ```
 
 ### Credential Storage
 
-Your Linear API key is stored in the **OS keychain** (macOS Keychain / Linux Secret Service), not in the config file. On first setup, the key is written to the keychain automatically.
+Your Linear API key is stored in the **OS keychain** (macOS Keychain / Linux Secret Service). On first setup, the key is written to the keychain automatically.
 
-If you have an existing config with a plaintext `linear_api_key`, it will be migrated to the keychain on the next run and removed from the file.
+If you have an existing config with a plaintext `linear_api_key`, it will be migrated to the keychain on the next run.
 
-**Fallback**: Set `LINEAR_API_KEY` as an environment variable for headless servers or CI where no keychain is available.
+**Fallback**: Set `LINEAR_API_KEY` as an environment variable for headless servers or CI.
 
-## Architecture
-
-```
-main.go          — entry point
-config.go        — config loading/saving
-linear.go        — Linear GraphQL API client (issues, comments, status updates)
-worktree.go      — git worktree CRUD + file sync
-launcher.go      — Claude Code / tmux fallback launcher
-cmux.go          — cmux Unix socket client + E-layout PaneManager
-model.go         — Bubble Tea TUI (model, update, view)
-*_test.go        — tests for all modules
-```
-
-## Tests
+### Debug Mode
 
 ```bash
-go test ./... -v
+LWT_DEBUG=1 ./linear-worktree
 ```
