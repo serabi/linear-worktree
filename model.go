@@ -79,7 +79,7 @@ func NewModel(cfg Config) Model {
 		paneManager:      pm,
 		useCmux:          useCmux,
 		help:             h,
-		keys:             defaultKeyMap(),
+		keys:             defaultKeyMap(len(cfg.Teams) > 1),
 		spinner:          sp,
 		detailViewport:   vp,
 		launchList:       ll,

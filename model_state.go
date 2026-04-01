@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -409,8 +410,28 @@ type Model struct {
 	prefetchSeq   int
 	lastListIndex int
 
+	confirm *confirmDialog
+
 	// Demo mode
 	demo bool
+}
+
+type confirmAction int
+
+const (
+	confirmQuit confirmAction = iota
+	confirmCloseSlot
+	confirmPostComment
+	confirmAssign
+	confirmUnassign
+	confirmStateChange
+)
+
+type confirmDialog struct {
+	action  confirmAction
+	title   string
+	message string
+	onYes   func(m *Model) (tea.Model, tea.Cmd)
 }
 
 type keyMap struct {
@@ -430,12 +451,13 @@ type keyMap struct {
 	Assign     key.Binding
 	Unassign   key.Binding
 	Links      key.Binding
+	TeamSwitch key.Binding
 	Help       key.Binding
 	Quit       key.Binding
 }
 
-func defaultKeyMap() keyMap {
-	return keyMap{
+func defaultKeyMap(multiTeam bool) keyMap {
+	km := keyMap{
 		Navigate:   key.NewBinding(key.WithKeys("j", "k"), key.WithHelp("j/k", "navigate")),
 		Claude:     key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "claude+worktree")),
 		Worktree:   key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "worktree")),
@@ -450,11 +472,16 @@ func defaultKeyMap() keyMap {
 		Setup:      key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "settings")),
 		Project:    key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "projects")),
 		Assign:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "assign to me")),
-		Unassign:   key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "unassign")),
+		Unassign:   key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "unassign")),
 		Links:      key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "links")),
+		TeamSwitch: key.NewBinding(key.WithKeys("1", "2", "3", "4", "5", "6", "7", "8", "9"), key.WithHelp("1-9", "switch team"), key.WithDisabled()),
 		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 		Quit:       key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
 	}
+	if multiTeam {
+		km.TeamSwitch.SetEnabled(true)
+	}
+	return km
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
@@ -464,8 +491,8 @@ func (k keyMap) ShortHelp() []key.Binding {
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Navigate, k.Claude, k.Worktree, k.Close},
-		{k.Comment, k.Detail, k.Filter, k.FilterPick, k.Search},
-		{k.Project, k.Assign, k.Unassign, k.Links},
+		{k.Detail, k.Filter, k.FilterPick, k.Search},
+		{k.Project, k.Assign, k.Unassign, k.Links, k.TeamSwitch},
 		{k.Open, k.Refresh, k.Setup, k.Help, k.Quit},
 	}
 }
@@ -531,9 +558,7 @@ func (m *Model) updateListTitle() {
 	if m.projectName != "" {
 		parts = append(parts, m.projectName)
 	}
-	if m.filter != FilterAssigned {
-		parts = append(parts, "["+m.filter.String()+"]")
-	}
+	parts = append(parts, "["+m.filter.String()+"]")
 	m.list.Title = strings.Join(parts, " > ")
 	if m.list.Title == "" {
 		m.list.Title = "Issues"

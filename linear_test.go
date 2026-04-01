@@ -331,7 +331,7 @@ func TestLinearClientGetIssuesByProject(t *testing.T) {
 	})
 	defer server.Close()
 
-	issues, pageInfo, err := testClient(server).GetIssuesByProject("team-1", "proj-1", "")
+	issues, pageInfo, err := testClient(server).GetIssuesByProject("team-1", "proj-1", "", FilterAll)
 	if err != nil {
 		t.Fatalf("GetIssuesByProject() error: %v", err)
 	}

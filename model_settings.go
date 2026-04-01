@@ -65,7 +65,7 @@ func (m *Model) buildTab(index, w int) *huh.Form {
 					Value(&m.settingsDraft.apiKey),
 				huh.NewInput().
 					Title("Team Keys (comma-separated)").
-					Description("Add multiple teams separated by commas. First team is your default. Press T from the issue list to switch between teams.").
+					Description("Add multiple teams separated by commas. First team is your default. Press 1-9 from the issue list to switch between teams.").
 					Placeholder("TSCODE, DHMIG, OTHER").
 					Value(&m.settingsDraft.teamKey),
 			),
@@ -289,8 +289,6 @@ func (m *Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.settingsTabs = [3]*huh.Form{}
 		m.view = viewList
 		return m, nil
-	case "ctrl+c":
-		return m, tea.Quit
 	}
 
 	f := m.activeSettingsForm()

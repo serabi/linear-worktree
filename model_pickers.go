@@ -93,9 +93,27 @@ func (m *Model) handleStateSelected() (tea.Model, tea.Cmd) {
 	m.stateIssue = nil
 	m.view = viewList
 
-	if selected != "" && issue != nil {
-		m.statusMsg = fmt.Sprintf("Updating state for %s...", issue.Identifier)
-		return m, m.changeStateCmd(issue.ID, selected, issue.Identifier)
+	if selected == "" || issue == nil {
+		return m, nil
+	}
+
+	// Find the state name for the confirmation message.
+	stateName := selected
+	for _, s := range m.workflowStates {
+		if s.ID == selected {
+			stateName = s.Name
+			break
+		}
+	}
+
+	m.confirm = &confirmDialog{
+		action:  confirmStateChange,
+		title:   "Change State?",
+		message: fmt.Sprintf("Move %s to %q?", issue.Identifier, stateName),
+		onYes: func(m *Model) (tea.Model, tea.Cmd) {
+			m.statusMsg = fmt.Sprintf("Updating state for %s...", issue.Identifier)
+			return m, m.changeStateCmd(issue.ID, selected, issue.Identifier)
+		},
 	}
 	return m, nil
 }

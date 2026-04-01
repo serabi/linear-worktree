@@ -419,14 +419,14 @@ func (lc *LinearClient) GetProjects(teamID string) ([]Project, error) {
 	return result.Projects.Nodes, err
 }
 
-func (lc *LinearClient) GetIssuesByProject(teamID, projectID, after string) ([]Issue, PageInfo, error) {
+func (lc *LinearClient) GetIssuesByProject(teamID, projectID, after string, filter FilterMode) ([]Issue, PageInfo, error) {
 	q := fmt.Sprintf(`
 		query($teamID: ID!, $projectID: ID!, $after: String) {
 			issues(
 				filter: { and: [
 					{ team: { id: { eq: $teamID } } },
 					{ project: { id: { eq: $projectID } } },
-					{ state: { type: { nin: ["completed", "cancelled"] } } }
+					%s
 				] }
 				first: 50
 				after: $after
@@ -435,7 +435,7 @@ func (lc *LinearClient) GetIssuesByProject(teamID, projectID, after string) ([]I
 				nodes { %s }
 				pageInfo { hasNextPage endCursor }
 			}
-		}`, issueListFields)
+		}`, issueFilterByMode[filter], issueListFields)
 
 	var result struct {
 		Issues struct {
