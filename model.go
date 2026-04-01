@@ -830,7 +830,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.issues = msg.issues
 		m.rebuildList()
 		m.updateListTitle()
-		m.statusMsg = m.buildStatusLine()
+		if len(msg.issues) == 0 && m.filter == FilterAssigned {
+			m.statusMsg = fmt.Sprintf("No issues assigned to you in %s. Press tab or f to see all issues.", m.cfg.TeamKey)
+		} else {
+			m.statusMsg = m.buildStatusLine()
+		}
 		return m, nil
 
 	case worktreesLoadedMsg:
