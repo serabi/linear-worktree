@@ -119,7 +119,7 @@ func (lc *LinearClient) queryWithVars(q string, vars map[string]any, result inte
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+lc.apiKey)
+	req.Header.Set("Authorization", lc.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := lc.client.Do(req)

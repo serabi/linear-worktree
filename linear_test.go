@@ -458,7 +458,7 @@ func TestLinearClientPagination(t *testing.T) {
 	}
 }
 
-func TestBearerAuthHeader(t *testing.T) {
+func TestAuthHeader(t *testing.T) {
 	var authHeader string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader = r.Header.Get("Authorization")
@@ -476,8 +476,8 @@ func TestBearerAuthHeader(t *testing.T) {
 
 	_, _ = client.GetViewer()
 
-	if authHeader != "Bearer lin_api_test123" {
-		t.Errorf("expected 'Bearer lin_api_test123', got '%s'", authHeader)
+	if authHeader != "lin_api_test123" {
+		t.Errorf("expected 'lin_api_test123', got '%s'", authHeader)
 	}
 }
 
