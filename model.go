@@ -838,8 +838,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.workflowStates = msg.states
-		m.showStatePicker()
-		return m, nil
+		return m, m.showStatePicker()
 
 	case issueAssignedMsg:
 		if msg.err != nil {
@@ -882,6 +881,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	}
+
+	// Route non-key messages to active huh forms
+	if m.view == viewProjectPicker && m.projectForm != nil {
+		form, cmd := m.projectForm.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			m.projectForm = f
+		}
+		return m, cmd
+	}
+	if m.view == viewStatePicker && m.stateForm != nil {
+		form, cmd := m.stateForm.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			m.stateForm = f
+		}
+		return m, cmd
 	}
 
 	var cmd tea.Cmd
@@ -1047,8 +1062,7 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, textinput.Blink
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("p"))):
-		m.showProjectPicker()
-		return m, nil
+		return m, m.showProjectPicker()
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("t"))):
 		issue := m.selectedIssue()
@@ -1058,8 +1072,7 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.stateIssue = issue
 		if len(m.workflowStates) > 0 {
-			m.showStatePicker()
-			return m, nil
+			return m, m.showStatePicker()
 		}
 		return m, m.fetchWorkflowStates()
 
@@ -1675,7 +1688,7 @@ func (m Model) viewSetup() string {
 
 // --- Project & State Pickers ---
 
-func (m *Model) showProjectPicker() {
+func (m *Model) showProjectPicker() tea.Cmd {
 	options := []huh.Option[string]{
 		huh.NewOption("All issues", ""),
 		huh.NewOption("No project", "none"),
@@ -1697,13 +1710,13 @@ func (m *Model) showProjectPicker() {
 				Value(&m.pickerSelected),
 		),
 	).WithWidth(50).WithShowHelp(false).WithShowErrors(false)
-	m.projectForm.Init()
 	m.view = viewProjectPicker
+	return m.projectForm.Init()
 }
 
-func (m *Model) showStatePicker() {
+func (m *Model) showStatePicker() tea.Cmd {
 	if m.stateIssue == nil {
-		return
+		return nil
 	}
 	options := make([]huh.Option[string], 0, len(m.workflowStates))
 	for _, s := range m.workflowStates {
@@ -1720,8 +1733,8 @@ func (m *Model) showStatePicker() {
 				Value(&m.pickerSelected),
 		),
 	).WithWidth(50).WithShowHelp(false).WithShowErrors(false)
-	m.stateForm.Init()
 	m.view = viewStatePicker
+	return m.stateForm.Init()
 }
 
 func (m *Model) updateProjectPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
