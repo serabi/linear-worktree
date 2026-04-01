@@ -934,7 +934,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.settingsTabs[m.settingsActiveTab] = updated
 		}
 		active := m.activeSettingsForm()
-		if active.State == huh.StateCompleted || active.State == huh.StateAborted {
+		if active.State == huh.StateCompleted {
+			if m.settingsActiveTab < len(m.settingsTabs)-1 {
+				m.rebuildActiveTab()
+				m.settingsActiveTab++
+			} else {
+				m.rebuildActiveTab()
+			}
+		} else if active.State == huh.StateAborted {
 			m.rebuildActiveTab()
 		}
 		return m, cmd
@@ -1343,15 +1350,6 @@ func (m *Model) updateSetup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
-	case "tab":
-		m.settingsActiveTab = (m.settingsActiveTab + 1) % len(m.settingsTabs)
-		return m, nil
-	case "shift+tab":
-		m.settingsActiveTab--
-		if m.settingsActiveTab < 0 {
-			m.settingsActiveTab = len(m.settingsTabs) - 1
-		}
-		return m, nil
 	case "ctrl+s":
 		return m.handleSettingsCompleted()
 	case "esc":
@@ -1371,10 +1369,27 @@ func (m *Model) updateSetup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.settingsTabs[m.settingsActiveTab] = updated
 	}
 
-	// If the single-group form completed or aborted, rebuild it so fields stay editable
+	// If the single-group form completed (Enter on last field), advance to next tab
+	// If aborted (Esc on first field), go to previous tab
 	active := m.activeSettingsForm()
-	if active.State == huh.StateCompleted || active.State == huh.StateAborted {
-		m.rebuildActiveTab()
+	if active.State == huh.StateCompleted {
+		if m.settingsActiveTab < len(m.settingsTabs)-1 {
+			m.rebuildActiveTab()
+			m.settingsActiveTab++
+		} else {
+			m.rebuildActiveTab()
+		}
+	} else if active.State == huh.StateAborted {
+		if m.settingsActiveTab > 0 {
+			m.rebuildActiveTab()
+			m.settingsActiveTab--
+		} else if !m.settingsFirstRun {
+			m.settingsTabs = [3]*huh.Form{}
+			m.view = viewList
+			return m, nil
+		} else {
+			m.rebuildActiveTab()
+		}
 	}
 
 	return m, cmd
@@ -1750,7 +1765,7 @@ func (m Model) viewSetup() string {
 	header := titleStyle.Render("Settings")
 	tabBar := m.renderSettingsTabBar()
 	body := m.activeSettingsForm().View()
-	help := statusBarStyle.Render("Tab/Shift+Tab: switch section  Ctrl+S: save  Esc: cancel")
+	help := statusBarStyle.Render("Enter/Tab: next field  Shift+Tab: prev field  Ctrl+S: save  Esc: cancel")
 	return appStyle.Render(
 		lipgloss.JoinVertical(lipgloss.Left, header, tabBar, "", body, "", help),
 	)
