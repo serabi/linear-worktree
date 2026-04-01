@@ -267,7 +267,7 @@ func (pm *PaneManager) OpenSlot(issue Issue, wtPath string, cfg Config) (*Worktr
 		return nil, fmt.Errorf("send cd: %w", err)
 	}
 
-	claudeCmd := fmt.Sprintf("%s --prompt %s\n", cfg.ClaudeCommand, shellQuote(prompt))
+	claudeCmd := fmt.Sprintf("%s %s\n", cfg.ClaudeCommand, shellQuote(prompt))
 	if err := pm.client.SendText(pm.workspaceID, surfaceID, claudeCmd); err != nil {
 		_ = pm.client.CloseSurface(pm.workspaceID, surfaceID)
 		return nil, fmt.Errorf("send claude: %w", err)
