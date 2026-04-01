@@ -1027,11 +1027,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		active := m.activeSettingsForm()
 		if active.State == huh.StateCompleted {
-			initCmd := m.rebuildActiveTab()
-			if m.settingsActiveTab < len(m.settingsTabs)-1 {
-				m.settingsActiveTab++
+			for _, tab := range m.settingsTabs {
+				if tab != nil && tab.State == huh.StateNormal {
+					tab.GetFocusedField().Blur()
+				}
 			}
-			return m, tea.Batch(cmd, initCmd)
+			return m.handleSettingsCompleted()
 		} else if active.State == huh.StateAborted {
 			return m, tea.Batch(cmd, m.rebuildActiveTab())
 		}
@@ -1541,15 +1542,16 @@ func (m *Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.settingsTabs[m.settingsActiveTab] = updated
 	}
 
-	// If the single-group form completed (Enter on last field), advance to next tab
-	// If aborted (Esc on first field), go to previous tab
+	// If the single-group form completed (Enter on last field), save settings
 	active := m.activeSettingsForm()
 	if active.State == huh.StateCompleted {
-		initCmd := m.rebuildActiveTab()
-		if m.settingsActiveTab < len(m.settingsTabs)-1 {
-			m.settingsActiveTab++
+		// Flush all tabs before saving
+		for _, tab := range m.settingsTabs {
+			if tab != nil && tab.State == huh.StateNormal {
+				tab.GetFocusedField().Blur()
+			}
 		}
-		return m, tea.Batch(cmd, initCmd)
+		return m.handleSettingsCompleted()
 	} else if active.State == huh.StateAborted {
 		if m.settingsActiveTab > 0 {
 			initCmd := m.rebuildActiveTab()
@@ -2062,7 +2064,7 @@ func (m Model) viewSettings() string {
 	header := titleStyle.Render("Settings")
 	tabBar := m.renderSettingsTabBar()
 	body := m.activeSettingsForm().View()
-	help := statusBarStyle.Render("1/2/3: switch tab  Enter/Tab: next field  Shift+Tab: prev field  Ctrl+S: save  Esc: cancel")
+	help := statusBarStyle.Render("Tab: next field  Enter: save  1/2/3: switch tab  Esc: cancel")
 	return appStyle.Render(
 		lipgloss.JoinVertical(lipgloss.Left, header, tabBar, "", body, "", help),
 	)

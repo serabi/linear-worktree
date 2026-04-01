@@ -393,7 +393,7 @@ func TestSettingsViewRendersTabBar(t *testing.T) {
 	if !strings.Contains(view, "Credentials") {
 		t.Error("settings view should contain tab names")
 	}
-	if !strings.Contains(view, "Ctrl+S") {
+	if !strings.Contains(view, "Enter: save") {
 		t.Error("settings view should contain help text")
 	}
 }
