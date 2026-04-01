@@ -529,6 +529,11 @@ func (m *Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			contentWidth := m.width - 6
 			m.detailViewport.SetContent(m.buildDetailContent(prev, contentWidth))
 			m.detailViewport.GotoTop()
+			if prev.ID != m.cachedCommentID {
+				m.loading = true
+				m.loadingLabel = "Loading comments..."
+				return m, tea.Batch(m.fetchCommentsCmd(prev.ID), m.spinner.Tick)
+			}
 			m.loading = false
 			return m, nil
 		}

@@ -349,6 +349,9 @@ func (m *Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func truncateURL(raw string, maxLen int) string {
+	if maxLen <= 0 {
+		return raw
+	}
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" {
 		if len(raw) > maxLen {
