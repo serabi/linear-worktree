@@ -319,7 +319,6 @@ const (
 	viewFilterPicker
 	viewSearch
 	viewLinkPicker
-	viewTeamPicker
 )
 
 
@@ -415,9 +414,6 @@ type Model struct {
 	prefetchSeq   int
 	lastListIndex int
 
-	// Team picker
-	teamPickerForm *huh.Form
-	teamSelected   string
 }
 
 // keyMap defines keybindings for the help component.
@@ -456,7 +452,7 @@ func defaultKeyMap() keyMap {
 		Refresh:    key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
 		Search:     key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 		Setup:      key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "settings")),
-		Project:    key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "teams/projects")),
+		Project:    key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "projects")),
 		Assign:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "assign to me")),
 		Unassign:   key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "unassign")),
 		Links:      key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "links")),
@@ -810,8 +806,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSearch(msg)
 		case viewLinkPicker:
 			return m.updateLinkPicker(msg)
-		case viewTeamPicker:
-			return m.updateTeamPicker(msg)
 		default:
 			return m.updateList(msg)
 		}
@@ -1079,16 +1073,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 	}
-	if m.view == viewTeamPicker && m.teamPickerForm != nil {
-		form, cmd := m.teamPickerForm.Update(msg)
-		if f, ok := form.(*huh.Form); ok {
-			m.teamPickerForm = f
-		}
-		if m.teamPickerForm.State == huh.StateCompleted {
-			return m.handleTeamSelected()
-		}
-		return m, cmd
-	}
 	if m.view == viewFilterPicker && m.filterForm != nil {
 		form, cmd := m.filterForm.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
@@ -1256,6 +1240,15 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		issue := m.selectedIssue()
 		if issue != nil && issue.URL != "" {
 			openBrowser(issue.URL)
+		}
+		return m, nil
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("1", "2", "3", "4", "5", "6", "7", "8", "9"))):
+		if len(m.cfg.Teams) > 1 {
+			idx := int(msg.String()[0] - '1')
+			if idx < len(m.cfg.Teams) && m.cfg.Teams[idx].Key != m.cfg.TeamKey {
+				return m, m.switchTeamCmd(m.cfg.Teams[idx])
+			}
 		}
 		return m, nil
 
@@ -1522,11 +1515,13 @@ func (m *Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.settingsActiveTab = 2
 		return m, nil
 	case "ctrl+s":
-		// Flush the active field's value before saving
-		// (huh only writes bound values on blur, not every keystroke)
-		active := m.settingsTabs[m.settingsActiveTab]
-		if active != nil {
-			active.NextField()
+		// Flush all tabs' focused fields -- huh only writes bound
+		// values on blur, not every keystroke. User may have edited
+		// a field on a tab they're no longer viewing.
+		for _, tab := range m.settingsTabs {
+			if tab != nil && tab.State == huh.StateNormal {
+				tab.GetFocusedField().Blur()
+			}
 		}
 		return m.handleSettingsCompleted()
 	case "esc":
@@ -1651,8 +1646,6 @@ func (m Model) View() string {
 		return m.viewPicker("Transition State", m.stateForm)
 	case viewLinkPicker:
 		return m.viewPicker("Open Link", m.linkPickerForm)
-	case viewTeamPicker:
-		return m.viewPicker("Switch Team", m.teamPickerForm)
 	case viewFilterPicker:
 		return m.viewPicker("Filter Issues", m.filterForm)
 	case viewSearch:
@@ -1662,14 +1655,31 @@ func (m Model) View() string {
 	}
 }
 
+func (m Model) renderTeamTabBar() string {
+	if len(m.cfg.Teams) <= 1 {
+		return ""
+	}
+	var tabs []string
+	for i, t := range m.cfg.Teams {
+		label := fmt.Sprintf("[%d] %s", i+1, t.Key)
+		if t.Key == m.cfg.TeamKey {
+			tabs = append(tabs, activeTabStyle.Render(label))
+		} else {
+			tabs = append(tabs, inactiveTabStyle.Render(label))
+		}
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
+}
+
 func (m Model) viewList() string {
 	slotBar := m.renderSlotBar()
+	teamBar := m.renderTeamTabBar()
 	content := m.list.View()
 	status := statusBarStyle.Render(m.statusMsg)
 	hint := statusBarStyle.Render("? help")
 
 	base := appStyle.Render(
-		lipgloss.JoinVertical(lipgloss.Left, slotBar, content, status, hint),
+		lipgloss.JoinVertical(lipgloss.Left, slotBar, teamBar, content, status, hint),
 	)
 
 	if m.showHelp {
@@ -2327,24 +2337,10 @@ func splitComma(s string) []string {
 // --- Project & State Pickers ---
 
 func (m *Model) showProjectPicker() tea.Cmd {
-	options := []huh.Option[string]{}
-
-	// Teams section (if multiple teams)
-	if len(m.cfg.Teams) > 1 {
-		for _, t := range m.cfg.Teams {
-			label := "Team: " + t.Key
-			if t.Key == m.cfg.TeamKey {
-				label += " (active)"
-			}
-			options = append(options, huh.NewOption(label, "team:"+t.Key))
-		}
-	}
-
-	// Project section
-	options = append(options,
+	options := []huh.Option[string]{
 		huh.NewOption("All issues", ""),
 		huh.NewOption("No project", "none"),
-	)
+	}
 	for _, p := range m.projects {
 		label := p.Name
 		if p.Progress > 0 {
@@ -2353,16 +2349,11 @@ func (m *Model) showProjectPicker() tea.Cmd {
 		options = append(options, huh.NewOption(label, p.ID))
 	}
 
-	title := "Projects"
-	if len(m.cfg.Teams) > 1 {
-		title = "Teams & Projects"
-	}
-
 	m.projectForm = huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Key("project").
-				Title(title).
+				Title("Filter by project").
 				Options(options...),
 		),
 	).WithWidth(50).WithShowHelp(false).WithShowErrors(false)
@@ -2397,19 +2388,6 @@ func (m *Model) handleProjectSelected() (tea.Model, tea.Cmd) {
 	m.projectForm = nil
 	m.view = viewList
 
-	// Handle team selection (prefixed with "team:")
-	if strings.HasPrefix(selected, "team:") {
-		teamKey := strings.TrimPrefix(selected, "team:")
-		if teamKey != m.cfg.TeamKey {
-			for _, t := range m.cfg.Teams {
-				if t.Key == teamKey {
-					return m, m.switchTeamCmd(t)
-				}
-			}
-		}
-		return m, nil
-	}
-
 	switch selected {
 	case "":
 		m.projectFilter = nil
@@ -2435,14 +2413,21 @@ func (m *Model) handleProjectSelected() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) updateListTitle() {
-	title := m.cfg.TeamKey
+	var parts []string
+	// Only show team key in title if there's one team (tab bar handles multi-team)
+	if len(m.cfg.Teams) <= 1 {
+		parts = append(parts, m.cfg.TeamKey)
+	}
 	if m.projectName != "" {
-		title = fmt.Sprintf("%s > %s", m.cfg.TeamKey, m.projectName)
+		parts = append(parts, m.projectName)
 	}
 	if m.filter != FilterAssigned {
-		title = fmt.Sprintf("%s [%s]", title, m.filter.String())
+		parts = append(parts, "["+m.filter.String()+"]")
 	}
-	m.list.Title = title
+	m.list.Title = strings.Join(parts, " > ")
+	if m.list.Title == "" {
+		m.list.Title = "Issues"
+	}
 }
 
 func (m *Model) handleStateSelected() (tea.Model, tea.Cmd) {
@@ -2582,66 +2567,6 @@ func (m *Model) flushTeamState() {
 	m.view = viewList
 	m.list.SetItems(nil)
 	m.updateListTitle()
-}
-
-func (m *Model) showTeamPicker() tea.Cmd {
-	options := make([]huh.Option[string], len(m.cfg.Teams))
-	for i, t := range m.cfg.Teams {
-		label := t.Key
-		if t.Key == m.cfg.TeamKey {
-			label += " (current)"
-		}
-		options[i] = huh.NewOption(label, t.Key)
-	}
-
-	m.teamSelected = ""
-	m.teamPickerForm = huh.NewForm(
-		huh.NewGroup(
-			huh.NewSelect[string]().
-				Title("Switch team").
-				Options(options...).
-				Value(&m.teamSelected),
-		),
-	).WithWidth(50).WithShowHelp(false).WithShowErrors(false)
-	m.view = viewTeamPicker
-	return m.teamPickerForm.Init()
-}
-
-func (m *Model) updateTeamPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.String() == "esc" {
-		m.view = viewList
-		m.teamPickerForm = nil
-		return m, nil
-	}
-
-	form, cmd := m.teamPickerForm.Update(msg)
-	if f, ok := form.(*huh.Form); ok {
-		m.teamPickerForm = f
-	}
-
-	if m.teamPickerForm.State == huh.StateCompleted {
-		return m.handleTeamSelected()
-	}
-
-	return m, cmd
-}
-
-func (m *Model) handleTeamSelected() (tea.Model, tea.Cmd) {
-	selected := m.teamSelected
-	m.teamPickerForm = nil
-	m.view = viewList
-
-	if selected == "" || selected == m.cfg.TeamKey {
-		return m, nil
-	}
-
-	// Find the team entry and switch
-	for _, t := range m.cfg.Teams {
-		if t.Key == selected {
-			return m, m.switchTeamCmd(t)
-		}
-	}
-	return m, nil
 }
 
 func (m Model) switchTeamCmd(team TeamEntry) tea.Cmd {
