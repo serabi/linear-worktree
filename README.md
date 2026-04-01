@@ -25,13 +25,13 @@ Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea), [Bubbles](h
 ## Install
 
 ```bash
-go install github.com/sarahwolff/linear-worktree@latest
+go install github.com/serabi/linear-worktree@latest
 ```
 
 Or build from source:
 
 ```bash
-git clone https://github.com/sarahwolff/linear-worktree.git
+git clone https://github.com/serabi/linear-worktree.git
 cd linear-worktree
 go build -o linear-worktree .
 ```

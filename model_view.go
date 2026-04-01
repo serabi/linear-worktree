@@ -38,8 +38,8 @@ func (m Model) View() string {
 	}
 
 	if m.confirm != nil {
-		yKey := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#22C55E")).Render("y")
-		nKey := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#EF4444")).Render("n")
+		yKey := lipgloss.NewStyle().Bold(true).Foreground(greenColor).Render("y")
+		nKey := lipgloss.NewStyle().Bold(true).Foreground(redColor).Render("n")
 		dialog := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("#7C3AED")).
@@ -98,17 +98,18 @@ func (m Model) viewList() string {
 				scope = m.cfg.TeamKey + " > " + m.projectName
 			}
 			hint = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#EAB308")).
+				Foreground(yellowColor).
 				Render(fmt.Sprintf("No issues assigned to you in %s.\nPress tab or f to see all issues.", scope))
 		} else {
 			hint = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#888")).
+				Foreground(dimColor).
 				Render("No issues found.")
 		}
 		content = lipgloss.Place(m.width-2, listH, lipgloss.Center, lipgloss.Center, hint)
 	}
 
 	status := statusBarStyle.Render(m.statusMsg)
+	legend := statusBarStyle.Render(renderLegendCompact())
 	var row1, row2 string
 	if len(m.cfg.Teams) > 1 {
 		row1 = "enter:detail  c:claude  1-9:team  p:project"
@@ -123,7 +124,7 @@ func (m Model) viewList() string {
 	}
 	shortcuts := statusBarStyle.Render(shortcutText)
 	base := appStyle.Render(
-		lipgloss.JoinVertical(lipgloss.Left, slotBar, teamBar, content, status, shortcuts),
+		lipgloss.JoinVertical(lipgloss.Left, slotBar, teamBar, content, status, legend, shortcuts),
 	)
 
 	if m.showHelp {
@@ -134,11 +135,12 @@ func (m Model) viewList() string {
 		}
 		m.help.Width = helpWidth
 		helpContent := m.help.View(m.keys)
+		legend := renderLegend()
 		helpBox := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("#7C3AED")).
 			Padding(1, 2).
-			Render(titleStyle.Render("Keybindings") + "\n\n" + helpContent + "\n\n" + statusBarStyle.Render("Press ? to close"))
+			Render(titleStyle.Render("Keybindings") + "\n\n" + helpContent + "\n\n" + legend + "\n\n" + statusBarStyle.Render("Press ? to close"))
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, helpBox)
 	}
 
@@ -281,4 +283,34 @@ func (m Model) viewPicker(title string, form *huh.Form) string {
 		lipgloss.Center, lipgloss.Center,
 		setupStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, body, status)),
 	)
+}
+
+func renderLegendCompact() string {
+	return statusIcon("backlog") + " Backlog " +
+		statusIcon("unstarted") + " Todo " +
+		statusIcon("started") + " In Progress " +
+		statusIcon("completed") + " Done  " +
+		priorityIcon(1) + " Urgent " +
+		priorityIcon(2) + " High " +
+		priorityIcon(3) + " Med " +
+		priorityIcon(4) + " Low"
+}
+
+func renderLegend() string {
+	heading := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7C3AED"))
+
+	statusLegend := heading.Render("Status") + "\n" +
+		statusIcon("backlog") + " Backlog  " +
+		statusIcon("unstarted") + " Todo  " +
+		statusIcon("started") + " In Progress  " +
+		statusIcon("completed") + " Done  " +
+		statusIcon("cancelled") + " Cancelled"
+
+	priorityLegend := heading.Render("Priority") + "\n" +
+		priorityIcon(1) + " Urgent  " +
+		priorityIcon(2) + " High  " +
+		priorityIcon(3) + " Medium  " +
+		priorityIcon(4) + " Low"
+
+	return statusLegend + "\n\n" + priorityLegend
 }

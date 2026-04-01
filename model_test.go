@@ -672,5 +672,80 @@ func TestSortPickerEscCancels(t *testing.T) {
 	}
 }
 
+func TestTeamSwitchPreservesState(t *testing.T) {
+	cfg := Config{
+		LinearAPIKey:  "lin_api_test",
+		TeamID:        "team-1",
+		TeamKey:       "TEAM1",
+		Teams:         []TeamEntry{{ID: "team-1", Key: "TEAM1"}, {ID: "team-2", Key: "TEAM2"}},
+		ClaudeCommand: "claude",
+		WorktreeBase:  "../worktrees",
+		BranchPrefix:  "feature/",
+		MaxSlots:      3,
+	}
+	m := NewModel(cfg)
+	m.width = 120
+	m.height = 40
+
+	// Simulate loaded state for TEAM1
+	m.issues = []Issue{
+		{Identifier: "TEAM1-1", Title: "First issue"},
+		{Identifier: "TEAM1-2", Title: "Second issue"},
+	}
+	m.projects = []Project{{ID: "p1", Name: "Project1"}}
+	m.workflowStates = []WorkflowState{{ID: "ws1", Name: "In Progress"}}
+	m.filter = FilterAll
+	projID := "p1"
+	m.projectFilter = &projID
+	m.projectName = "Project1"
+	m.rebuildList()
+	m.list.Select(1) // select second item
+
+	// Switch to TEAM2
+	switchedCfg := cfg
+	switchedCfg.TeamID = "team-2"
+	switchedCfg.TeamKey = "TEAM2"
+	result, _ := m.Update(teamSwitchedMsg{cfg: switchedCfg})
+	mp := result.(Model)
+
+	// TEAM2 has no cache, so model should be in loading state
+	if !mp.loading {
+		t.Error("expected loading=true for uncached team")
+	}
+	if mp.filter != FilterAssigned {
+		t.Errorf("uncached team should reset filter to FilterAssigned, got %v", mp.filter)
+	}
+
+	// Simulate TEAM2 data loaded
+	mp.loading = false
+	mp.issues = []Issue{{Identifier: "TEAM2-1", Title: "Other issue"}}
+	mp.filter = FilterInProgress
+	mp.rebuildList()
+
+	// Switch back to TEAM1
+	result2, _ := mp.Update(teamSwitchedMsg{cfg: cfg})
+	mp2 := result2.(Model)
+
+	// Should restore TEAM1's cached state
+	if mp2.loading {
+		t.Error("expected loading=false for cached team")
+	}
+	if len(mp2.issues) != 2 {
+		t.Errorf("expected 2 cached issues, got %d", len(mp2.issues))
+	}
+	if mp2.filter != FilterAll {
+		t.Errorf("expected cached filter FilterAll, got %v", mp2.filter)
+	}
+	if mp2.projectFilter == nil || *mp2.projectFilter != "p1" {
+		t.Error("expected cached projectFilter to be restored")
+	}
+	if mp2.projectName != "Project1" {
+		t.Errorf("expected cached projectName 'Project1', got %q", mp2.projectName)
+	}
+	if mp2.list.Index() != 1 {
+		t.Errorf("expected cached list index 1, got %d", mp2.list.Index())
+	}
+}
+
 // Ensure huh is used (compile-time check)
 var _ = huh.StateCompleted
