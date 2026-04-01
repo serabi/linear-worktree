@@ -42,11 +42,17 @@ func mockLinearServer(handler func(query string, vars map[string]any) (int, inte
 			Query     string         `json:"query"`
 			Variables map[string]any `json:"variables"`
 		}
-		json.NewDecoder(r.Body).Decode(&body)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
 		status, data := handler(body.Query, body.Variables)
 		w.WriteHeader(status)
-		json.NewEncoder(w).Encode(map[string]interface{}{"data": data})
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{"data": data}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}))
 }
 
@@ -230,7 +236,9 @@ func TestGraphQLVariablesAreSent(t *testing.T) {
 		},
 	}
 
-	client.GetIssues("team-abc-123", FilterAll)
+	if _, err := client.GetIssues("team-abc-123", FilterAll); err != nil {
+		t.Fatalf("GetIssues() error: %v", err)
+	}
 
 	if receivedVars == nil {
 		t.Fatal("expected variables to be sent, got nil")
