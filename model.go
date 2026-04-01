@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -1725,30 +1726,68 @@ func (m Model) renderSlotBar() string {
 	return lipgloss.NewStyle().Padding(0, 1).Render(strings.Join(parts, "  "))
 }
 
-func (m Model) buildDetailContent(issue *Issue, width int) string {
-	wrap := func(s string) string {
-		return lipgloss.NewStyle().Width(width).Render(s)
+func (m Model) renderMarkdown(text string, width int) string {
+	renderer, err := glamour.NewTermRenderer(
+		glamour.WithAutoStyle(),
+		glamour.WithWordWrap(width-4),
+	)
+	if err != nil {
+		return lipgloss.NewStyle().Width(width).Render(text)
 	}
+	rendered, err := renderer.Render(text)
+	if err != nil {
+		return lipgloss.NewStyle().Width(width).Render(text)
+	}
+	return strings.TrimRight(rendered, "\n")
+}
+
+func (m Model) buildDetailContent(issue *Issue, width int) string {
 	dim := commentDimStyle.Render
-	sectionHeader := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7C3AED")).Render
 	blockerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444")).Render
 	linkStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#06B6D4")).Render
 
+	divider := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#444")).
+		Width(width).
+		Render(strings.Repeat("─", width))
+
+	sectionDiv := func(title string) string {
+		titleStr := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#7C3AED")).
+			Render(title)
+		return "\n" + titleStr + "\n" + divider + "\n"
+	}
+
 	field := func(label, value string) string {
-		return dim(fmt.Sprintf("%-12s", label)) + value + "\n"
+		l := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#888")).
+			Width(14).
+			Align(lipgloss.Right).
+			Render(label)
+		return l + "  " + value + "\n"
 	}
 
 	var b strings.Builder
 
-	// Header
+	// Header: identifier + state badge with Linear color
 	b.WriteString(issueIdentStyle.Render(issue.Identifier))
 	b.WriteString("  ")
-	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#EAB308")).Render(issue.State.Name))
+	stateColor := "#EAB308"
+	if issue.State.Color != "" {
+		stateColor = issue.State.Color
+	}
+	stateBadge := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(stateColor)).
+		Bold(true).
+		Render(issue.State.Name)
+	b.WriteString(stateBadge)
 	b.WriteString("\n\n")
 	b.WriteString(lipgloss.NewStyle().Bold(true).Width(width).Render(issue.Title))
-	b.WriteString("\n\n")
+	b.WriteString("\n")
 
 	// Metadata
+	b.WriteString(sectionDiv("Details"))
 	if issue.Project != nil {
 		b.WriteString(field("Project", issue.Project.Name))
 	}
@@ -1763,7 +1802,18 @@ func (m Model) buildDetailContent(issue *Issue, width int) string {
 		b.WriteString(field("Assignee", name))
 	}
 	priNames := map[int]string{0: "None", 1: "Urgent", 2: "High", 3: "Medium", 4: "Low"}
-	b.WriteString(field("Priority", priNames[issue.Priority]))
+	priName := priNames[issue.Priority]
+	switch issue.Priority {
+	case 1:
+		priName = urgentStyle.Render(priName)
+	case 2:
+		priName = highStyle.Render(priName)
+	case 3:
+		priName = mediumStyle.Render(priName)
+	case 4:
+		priName = lowStyle.Render(priName)
+	}
+	b.WriteString(field("Priority", priName))
 	if issue.Estimate != nil {
 		b.WriteString(field("Estimate", fmt.Sprintf("%.0f pts", *issue.Estimate)))
 	}
@@ -1784,11 +1834,17 @@ func (m Model) buildDetailContent(issue *Issue, width int) string {
 		b.WriteString(field("Due", dueStr))
 	}
 	if len(issue.Labels.Nodes) > 0 {
-		labels := make([]string, len(issue.Labels.Nodes))
+		pills := make([]string, len(issue.Labels.Nodes))
 		for i, l := range issue.Labels.Nodes {
-			labels[i] = l.Name
+			color := "#888"
+			if l.Color != "" {
+				color = l.Color
+			}
+			pills[i] = lipgloss.NewStyle().
+				Foreground(lipgloss.Color(color)).
+				Render(l.Name)
 		}
-		b.WriteString(field("Labels", wrap(strings.Join(labels, ", "))))
+		b.WriteString(field("Labels", strings.Join(pills, dim(" / "))))
 	}
 	if issue.CreatedAt != "" {
 		b.WriteString(field("Created", relativeTime(issue.CreatedAt)))
@@ -1805,9 +1861,7 @@ func (m Model) buildDetailContent(issue *Issue, width int) string {
 
 	// Relations
 	if len(issue.Relations.Nodes) > 0 {
-		b.WriteString("\n")
-		b.WriteString(sectionHeader("Relations"))
-		b.WriteString("\n")
+		b.WriteString(sectionDiv("Relations"))
 		for _, r := range issue.Relations.Nodes {
 			prefix := r.Type
 			style := dim
@@ -1836,52 +1890,92 @@ func (m Model) buildDetailContent(issue *Issue, width int) string {
 
 	// Sub-issues
 	if len(issue.Children.Nodes) > 0 {
-		b.WriteString("\n")
-		completed := 0
-		for _, child := range issue.Children.Nodes {
-			if child.State.Type == "completed" {
-				completed++
-			}
-		}
-		b.WriteString(sectionHeader(fmt.Sprintf("Sub-issues [%d/%d]", completed, len(issue.Children.Nodes))))
-		b.WriteString("\n")
+		b.WriteString(sectionDiv(fmt.Sprintf("Sub-issues [%d/%d]", countCompleted(issue.Children.Nodes), len(issue.Children.Nodes))))
 		for _, child := range issue.Children.Nodes {
 			icon := statusIcon(child.State.Type)
 			b.WriteString(fmt.Sprintf("  %s %s %s\n", icon, linkStyle(child.Identifier), dim(child.Title)))
 		}
 	}
 
-	// Description
+	// Description (glamour-rendered markdown)
 	if issue.Description != "" {
-		b.WriteString("\n")
-		b.WriteString(sectionHeader("Description"))
-		b.WriteString("\n")
-		b.WriteString(wrap(issue.Description))
+		b.WriteString(sectionDiv("Description"))
+		b.WriteString(m.renderMarkdown(issue.Description, width))
 		b.WriteString("\n")
 	}
 
 	// Comments
 	if m.cachedCommentID == issue.ID && len(m.cachedComments) > 0 {
-		b.WriteString("\n")
-		b.WriteString(sectionHeader(fmt.Sprintf("Comments (%d)", len(m.cachedComments))))
-		b.WriteString("\n")
-		for _, c := range m.cachedComments {
+		b.WriteString(sectionDiv(fmt.Sprintf("Comments (%d)", len(m.cachedComments))))
+
+		commentSep := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#333")).
+			Render(strings.Repeat("─", width-4))
+
+		for i, c := range m.cachedComments {
 			name := c.User.DisplayName
 			if name == "" {
 				name = c.User.Name
 			}
+			ts := relativeTime(c.CreatedAt)
 			isMe := m.viewer != nil && c.User.ID == m.viewer.ID
-			nameStyle := dim
+
+			// Author line: name left, timestamp right
+			nameRendered := dim(name)
 			if isMe {
-				nameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")).Bold(true).Render
+				nameRendered = lipgloss.NewStyle().
+					Foreground(lipgloss.Color("#22C55E")).
+					Bold(true).
+					Render(name)
 			}
-			b.WriteString(fmt.Sprintf("\n%s %s\n", nameStyle(name+":"), dim(relativeTime(c.CreatedAt))))
-			b.WriteString(wrap(c.Body))
-			b.WriteString("\n")
+			tsRendered := dim(ts)
+			gap := width - 4 - lipgloss.Width(name) - lipgloss.Width(ts)
+			if gap < 2 {
+				gap = 2
+			}
+			b.WriteString("  " + nameRendered + strings.Repeat(" ", gap) + tsRendered + "\n")
+
+			// Comment body (glamour-rendered)
+			body := m.renderMarkdown(c.Body, width-4)
+			if isMe {
+				// Left border highlight for own comments
+				lines := strings.Split(body, "\n")
+				for _, line := range lines {
+					b.WriteString(lipgloss.NewStyle().
+						Foreground(lipgloss.Color("#22C55E")).
+						Render("  |") + " " + line + "\n")
+				}
+			} else {
+				for _, line := range strings.Split(body, "\n") {
+					b.WriteString("  " + line + "\n")
+				}
+			}
+
+			if i < len(m.cachedComments)-1 {
+				b.WriteString("  " + commentSep + "\n")
+			}
 		}
 	}
 
 	return b.String()
+}
+
+func countCompleted(children []struct {
+	ID         string `json:"id"`
+	Identifier string `json:"identifier"`
+	Title      string `json:"title"`
+	State      struct {
+		Name string `json:"name"`
+		Type string `json:"type"`
+	} `json:"state"`
+}) int {
+	n := 0
+	for _, c := range children {
+		if c.State.Type == "completed" {
+			n++
+		}
+	}
+	return n
 }
 
 func relativeTime(iso string) string {
