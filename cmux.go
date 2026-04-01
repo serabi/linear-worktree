@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -281,6 +282,7 @@ func (pm *PaneManager) OpenSlot(issue Issue, wtPath string, cfg Config) (*Worktr
 		Status:       AgentRunning,
 	}
 	pm.slots[slotIdx] = slot
+	pm.setStatusPill(slot)
 	return slot, nil
 }
 
@@ -352,6 +354,7 @@ func (pm *PaneManager) CloseSlot(slotIdx int) error {
 	}
 
 	slot := pm.slots[slotIdx]
+	pm.clearStatusPill(slot)
 	err := pm.client.CloseSurface(pm.workspaceID, slot.SurfaceID)
 	pm.slots[slotIdx] = nil
 	return err
@@ -390,8 +393,65 @@ func (pm *PaneManager) PollStatus() {
 		if err != nil {
 			continue
 		}
-		pm.slots[i].Status = inferStatus(text)
+		newStatus := inferStatus(text)
+		if newStatus != pm.slots[i].Status {
+			pm.slots[i].Status = newStatus
+			pm.setStatusPill(pm.slots[i])
+		}
 	}
+}
+
+func statusPillKey(slot *WorktreeSlot) string {
+	return fmt.Sprintf("slot_%d", slot.Index)
+}
+
+func statusPillColor(status AgentStatus) string {
+	switch status {
+	case AgentRunning:
+		return "#22C55E" // green
+	case AgentWaiting:
+		return "#EAB308" // yellow
+	case AgentIdle:
+		return "#888888" // gray
+	default:
+		return "#444444"
+	}
+}
+
+func statusPillIcon(status AgentStatus) string {
+	switch status {
+	case AgentRunning:
+		return "sparkle"
+	case AgentWaiting:
+		return "exclamationmark.triangle"
+	case AgentIdle:
+		return "checkmark"
+	default:
+		return "circle"
+	}
+}
+
+func (pm *PaneManager) setStatusPill(slot *WorktreeSlot) {
+	cmuxPath, err := exec.LookPath("cmux")
+	if err != nil {
+		return
+	}
+	value := fmt.Sprintf("%s %s", slot.Issue.Identifier, slot.Status.Label())
+	cmd := exec.Command(cmuxPath, "set-status", statusPillKey(slot), value,
+		"--icon", statusPillIcon(slot.Status),
+		"--color", statusPillColor(slot.Status),
+		"--workspace", pm.workspaceID)
+	_ = cmd.Run()
+}
+
+func (pm *PaneManager) clearStatusPill(slot *WorktreeSlot) {
+	cmuxPath, err := exec.LookPath("cmux")
+	if err != nil {
+		return
+	}
+	cmd := exec.Command(cmuxPath, "clear-status", statusPillKey(slot),
+		"--workspace", pm.workspaceID)
+	_ = cmd.Run()
 }
 
 // inferStatus pattern-matches terminal content to determine Claude's state.
