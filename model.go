@@ -319,8 +319,10 @@ type Model struct {
 	launchList  list.Model
 	promptArea  textarea.Model
 
-	// Settings form
-	settingsForm      *huh.Form
+	// Settings tabs
+	settingsTabs      [3]*huh.Form
+	settingsTabNames  [3]string
+	settingsActiveTab int
 	settingsAPIKey    string
 	settingsTeamKey   string
 	settingsWtBase    string
@@ -503,8 +505,12 @@ func NewModel(cfg Config) Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	if m.settingsForm != nil {
-		return m.settingsForm.Init()
+	if m.settingsTabs[0] != nil {
+		cmds := make([]tea.Cmd, len(m.settingsTabs))
+		for i := range m.settingsTabs {
+			cmds[i] = m.settingsTabs[i].Init()
+		}
+		return tea.Batch(cmds...)
 	}
 	cmds := []tea.Cmd{
 		m.fetchIssues(),
@@ -675,12 +681,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.list.SetSize(msg.Width-2, msg.Height-4)
-		if m.settingsForm != nil {
+		if m.settingsTabs[0] != nil {
 			w := msg.Width - 4
 			if w < 60 {
 				w = 60
 			}
-			m.settingsForm = m.settingsForm.WithWidth(w).WithHeight(msg.Height - 4)
+			for i := range m.settingsTabs {
+				if m.settingsTabs[i] != nil {
+					m.settingsTabs[i] = m.settingsTabs[i].WithWidth(w)
+				}
+			}
 		}
 		if m.view == viewDetail && m.detailIssue != nil {
 			contentWidth := msg.Width - 6
@@ -813,7 +823,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case setupCompleteMsg:
 		m.cfg = msg.cfg
 		m.view = viewList
-		m.settingsForm = nil
+		m.settingsTabs = [3]*huh.Form{}
 		m.settingsFirstRun = false
 		m.statusMsg = "Settings saved. API key stored in OS keychain."
 		m.updateListTitle()
@@ -896,21 +906,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Route non-key messages to active huh forms
-	if m.view == viewSetup && m.settingsForm != nil {
-		form, cmd := m.settingsForm.Update(msg)
-		if f, ok := form.(*huh.Form); ok {
-			m.settingsForm = f
-		}
-		if m.settingsForm.State == huh.StateCompleted {
-			return m.handleSettingsCompleted()
-		}
-		if m.settingsForm.State == huh.StateAborted {
-			if m.settingsFirstRun {
-				return m, m.buildSettingsForm()
-			}
-			m.settingsForm = nil
-			m.view = viewList
-			return m, nil
+	if m.view == viewSetup && m.settingsTabs[0] != nil {
+		f := m.activeSettingsForm()
+		form, cmd := f.Update(msg)
+		if updated, ok := form.(*huh.Form); ok {
+			m.settingsTabs[m.settingsActiveTab] = updated
 		}
 		return m, cmd
 	}
@@ -1299,27 +1299,38 @@ func (m Model) launchWithPromptCmd(issue Issue, prompt string) tea.Cmd {
 }
 
 func (m *Model) updateSetup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.settingsForm == nil {
+	if m.settingsTabs[0] == nil {
 		return m, nil
 	}
 
-	form, cmd := m.settingsForm.Update(msg)
-	if f, ok := form.(*huh.Form); ok {
-		m.settingsForm = f
-	}
-
-	if m.settingsForm.State == huh.StateCompleted {
-		return m.handleSettingsCompleted()
-	}
-	if m.settingsForm.State == huh.StateAborted {
-		if m.settingsFirstRun {
-			return m, m.buildSettingsForm()
+	switch msg.String() {
+	case "tab":
+		m.settingsActiveTab = (m.settingsActiveTab + 1) % len(m.settingsTabs)
+		return m, nil
+	case "shift+tab":
+		m.settingsActiveTab--
+		if m.settingsActiveTab < 0 {
+			m.settingsActiveTab = len(m.settingsTabs) - 1
 		}
-		m.settingsForm = nil
+		return m, nil
+	case "ctrl+s":
+		return m.handleSettingsCompleted()
+	case "esc":
+		if m.settingsFirstRun {
+			return m, nil
+		}
+		m.settingsTabs = [3]*huh.Form{}
 		m.view = viewList
 		return m, nil
+	case "ctrl+c":
+		return m, tea.Quit
 	}
 
+	f := m.activeSettingsForm()
+	form, cmd := f.Update(msg)
+	if updated, ok := form.(*huh.Form); ok {
+		m.settingsTabs[m.settingsActiveTab] = updated
+	}
 	return m, cmd
 }
 
@@ -1685,19 +1696,40 @@ func (m Model) viewComment() string {
 }
 
 func (m Model) viewSetup() string {
-	if m.settingsForm == nil {
+	if m.settingsTabs[0] == nil {
 		return ""
 	}
 	header := titleStyle.Render("Settings")
-	body := m.settingsForm.View()
+	tabBar := m.renderSettingsTabBar()
+	body := m.activeSettingsForm().View()
+	help := statusBarStyle.Render("Tab/Shift+Tab: switch section  Ctrl+S: save  Esc: cancel")
 	return appStyle.Render(
-		lipgloss.JoinVertical(lipgloss.Left, header, body),
+		lipgloss.JoinVertical(lipgloss.Left, header, tabBar, "", body, "", help),
 	)
 }
 
 // --- Project & State Pickers ---
 
-// --- Settings Form ---
+// --- Settings Tabs ---
+
+var (
+	activeTabStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#7C3AED")).
+			Border(lipgloss.NormalBorder(), false, false, true, false).
+			BorderForeground(lipgloss.Color("#7C3AED")).
+			Padding(0, 2)
+
+	inactiveTabStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#888")).
+				Border(lipgloss.NormalBorder(), false, false, true, false).
+				BorderForeground(lipgloss.Color("#444")).
+				Padding(0, 2)
+)
+
+func (m *Model) activeSettingsForm() *huh.Form {
+	return m.settingsTabs[m.settingsActiveTab]
+}
 
 func (m *Model) initSettingsForm() {
 	m.settingsAPIKey = m.cfg.LinearAPIKey
@@ -1711,39 +1743,32 @@ func (m *Model) initSettingsForm() {
 	m.settingsMaxSlots = m.cfg.MaxSlots
 	m.settingsHook = m.cfg.PostCreateHook
 	m.settingsPrompt = m.cfg.PromptTemplate
+	m.settingsActiveTab = 0
 
 	w := m.width - 4
 	if w < 60 {
 		w = 60
 	}
 
-	m.settingsForm = huh.NewForm(
+	m.settingsTabNames = [3]string{"Credentials", "Worktree", "Launch"}
+
+	m.settingsTabs[0] = huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Linear API Key").
 				Description("Personal API key from Linear Settings > API. Stored securely in your OS keychain, never written to the config file.").
 				Placeholder("lin_api_...").
 				EchoMode(huh.EchoModePassword).
-				Value(&m.settingsAPIKey).
-				Validate(func(s string) error {
-					if strings.TrimSpace(s) == "" {
-						return fmt.Errorf("required")
-					}
-					return nil
-				}),
+				Value(&m.settingsAPIKey),
 			huh.NewInput().
 				Title("Team Key").
 				Description("The short prefix for your team's issues (e.g. TSCODE). Find it in the URL: linear.app/TEAMKEY/...").
 				Placeholder("MYTEAM").
-				Value(&m.settingsTeamKey).
-				Validate(func(s string) error {
-					if strings.TrimSpace(s) == "" {
-						return fmt.Errorf("required")
-					}
-					return nil
-				}),
-		).Title("Credentials").Description("Connect to your Linear workspace"),
+				Value(&m.settingsTeamKey),
+		),
+	).WithWidth(w).WithShowHelp(false).WithShowErrors(true)
 
+	m.settingsTabs[1] = huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Worktree Base Directory").
@@ -1765,8 +1790,10 @@ func (m *Model) initSettingsForm() {
 				Description("Prefix added to git branch names when creating worktrees. Issue TSCODE-123 becomes feature/tscode-123.").
 				Placeholder("feature/").
 				Value(&m.settingsBranch),
-		).Title("Worktree").Description("Configure how git worktrees are created"),
+		),
+	).WithWidth(w).WithShowHelp(false).WithShowErrors(true)
 
+	m.settingsTabs[2] = huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Claude Command").
@@ -1802,20 +1829,42 @@ func (m *Model) initSettingsForm() {
 					huh.NewOption("4 slots", 4),
 				).
 				Value(&m.settingsMaxSlots),
-		).Title("Launch").Description("Configure how Claude sessions are launched"),
-	).WithWidth(w).WithShowHelp(true).WithShowErrors(true)
+		),
+	).WithWidth(w).WithShowHelp(false).WithShowErrors(true)
 
 	m.view = viewSetup
 }
 
 func (m *Model) buildSettingsForm() tea.Cmd {
 	m.initSettingsForm()
-	return m.settingsForm.Init()
+	cmds := make([]tea.Cmd, len(m.settingsTabs))
+	for i := range m.settingsTabs {
+		cmds[i] = m.settingsTabs[i].Init()
+	}
+	return tea.Batch(cmds...)
+}
+
+func (m Model) renderSettingsTabBar() string {
+	var tabs []string
+	for i, name := range m.settingsTabNames {
+		if i == m.settingsActiveTab {
+			tabs = append(tabs, activeTabStyle.Render(name))
+		} else {
+			tabs = append(tabs, inactiveTabStyle.Render(name))
+		}
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
 }
 
 func (m *Model) handleSettingsCompleted() (tea.Model, tea.Cmd) {
 	apiKey := strings.TrimSpace(m.settingsAPIKey)
 	teamKey := strings.TrimSpace(m.settingsTeamKey)
+
+	if apiKey == "" || teamKey == "" {
+		m.statusMsg = "API key and team key are required"
+		m.settingsActiveTab = 0
+		return m, nil
+	}
 
 	newCfg := m.cfg
 	newCfg.LinearAPIKey = apiKey
@@ -1840,7 +1889,7 @@ func (m *Model) handleSettingsCompleted() (tea.Model, tea.Cmd) {
 		newCfg.BranchPrefix = "feature/"
 	}
 
-	m.settingsForm = nil
+	m.settingsTabs = [3]*huh.Form{}
 
 	if teamKey != m.cfg.TeamKey || newCfg.TeamID == "" {
 		m.cfg = newCfg
