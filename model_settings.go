@@ -59,7 +59,7 @@ func (m *Model) buildTab(index, w int) *huh.Form {
 			huh.NewGroup(
 				huh.NewInput().
 					Title("Linear API Key").
-					Description("Personal API key from Linear Settings > API. Stored securely in your OS keychain, never written to the config file.").
+					Description("Create one at: https://linear.app/settings\nGo to Account > Security & access > API Keys. Stored in your OS keychain.\nPress ctrl+w to open in browser.").
 					Placeholder("lin_api_...").
 					EchoMode(huh.EchoModePassword).
 					Value(&m.settingsDraft.apiKey),
@@ -275,6 +275,11 @@ func (m *Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "3":
 		m.settingsActiveTab = 2
 		return m, nil
+	case "ctrl+w":
+		if m.settingsActiveTab == 0 {
+			openBrowser("https://linear.app/settings")
+			return m, nil
+		}
 	case "ctrl+s":
 		for _, tab := range m.settingsTabs {
 			if tab != nil && tab.State == huh.StateNormal {
