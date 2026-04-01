@@ -218,8 +218,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = fmt.Sprintf("Team switch error: %v", msg.err)
 			return m, nil
 		}
+		m.saveTeamState()
 		m.cfg = msg.cfg
 		m.flushTeamState()
+		if m.restoreTeamState() {
+			m.statusMsg = m.buildStatusLine()
+			return m, nil
+		}
 		m.loading = true
 		m.loadingLabel = fmt.Sprintf("Loading %s...", m.cfg.TeamKey)
 		return m, tea.Batch(m.fetchIssues(), m.fetchProjects(), m.fetchWorkflowStates(), m.spinner.Tick)
