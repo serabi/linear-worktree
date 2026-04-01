@@ -96,6 +96,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateStatePicker(msg)
 		case viewFilterPicker:
 			return m.updateFilterPicker(msg)
+		case viewSortPicker:
+			return m.updateSortPicker(msg)
 		case viewSearch:
 			return m.updateSearch(msg)
 		case viewLinkPicker:
@@ -383,6 +385,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 	}
+	if m.view == viewSortPicker && m.sortForm != nil {
+		form, cmd := m.sortForm.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			m.sortForm = f
+		}
+		if m.sortForm.State == huh.StateCompleted {
+			return m.handleSortSelected()
+		}
+		return m, cmd
+	}
 
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
@@ -436,6 +448,9 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("s"))):
 		return m, m.buildSettingsForm()
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("o"))):
+		return m, m.showSortPicker()
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("p"))):
 		return m, m.showProjectPicker()

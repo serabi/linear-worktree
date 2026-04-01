@@ -29,6 +29,8 @@ func (m Model) View() string {
 		base = m.viewPicker("Open Link", m.linkPickerForm)
 	case viewFilterPicker:
 		base = m.viewPicker("Filter Issues", m.filterForm)
+	case viewSortPicker:
+		base = m.viewPicker("Sort Issues", m.sortForm)
 	case viewSearch:
 		base = m.viewSearchInput()
 	default:
@@ -107,11 +109,17 @@ func (m Model) viewList() string {
 	}
 
 	status := statusBarStyle.Render(m.statusMsg)
-	shortcutText := "enter:detail  c:claude  p:project  f:filter  s:settings  ?:help"
+	var row1, row2 string
 	if len(m.cfg.Teams) > 1 {
-		shortcutText = "enter:detail  c:claude  1-9:team  p:project  f:filter  s:settings  ?:help"
+		row1 = "enter:detail  c:claude  1-9:team  p:project"
+		row2 = "f:filter  o:sort  s:settings  ?:help"
 	} else {
-		shortcutText = "enter:detail  c:claude  p:project  f:filter  s:settings(+teams)  ?:help"
+		row1 = "enter:detail  c:claude  p:project"
+		row2 = "f:filter  o:sort  s:settings(+teams)  ?:help"
+	}
+	shortcutText := row1 + "  " + row2
+	if lipgloss.Width(shortcutText)+2 > m.width {
+		shortcutText = row1 + "\n" + row2
 	}
 	shortcuts := statusBarStyle.Render(shortcutText)
 	base := appStyle.Render(

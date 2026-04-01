@@ -137,7 +137,7 @@ func TestLinearClientGetIssues(t *testing.T) {
 		},
 	}
 
-	issues, _, err := client.GetIssues("team-1", FilterAll, "")
+	issues, _, err := client.GetIssues("team-1", FilterAll, SortUpdatedAt, "")
 	if err != nil {
 		t.Fatalf("GetIssues() error: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestGraphQLVariablesAreSent(t *testing.T) {
 		},
 	}
 
-	if _, _, err := client.GetIssues("team-abc-123", FilterAll, ""); err != nil {
+	if _, _, err := client.GetIssues("team-abc-123", FilterAll, SortUpdatedAt, ""); err != nil {
 		t.Fatalf("GetIssues() error: %v", err)
 	}
 
@@ -331,7 +331,7 @@ func TestLinearClientGetIssuesByProject(t *testing.T) {
 	})
 	defer server.Close()
 
-	issues, pageInfo, err := testClient(server).GetIssuesByProject("team-1", "proj-1", "", FilterAll)
+	issues, pageInfo, err := testClient(server).GetIssuesByProject("team-1", "proj-1", "", FilterAll, SortUpdatedAt)
 	if err != nil {
 		t.Fatalf("GetIssuesByProject() error: %v", err)
 	}
@@ -359,7 +359,7 @@ func TestLinearClientGetIssuesWithNoProject(t *testing.T) {
 	})
 	defer server.Close()
 
-	issues, pageInfo, err := testClient(server).GetIssuesWithNoProject("team-1", FilterAll, "")
+	issues, pageInfo, err := testClient(server).GetIssuesWithNoProject("team-1", FilterAll, SortUpdatedAt, "")
 	if err != nil {
 		t.Fatalf("GetIssuesWithNoProject() error: %v", err)
 	}
@@ -463,7 +463,7 @@ func TestLinearClientPagination(t *testing.T) {
 	client := testClient(server)
 
 	// First page
-	issues, pageInfo, err := client.GetIssues("team-1", FilterAll, "")
+	issues, pageInfo, err := client.GetIssues("team-1", FilterAll, SortUpdatedAt, "")
 	if err != nil {
 		t.Fatalf("page 1 error: %v", err)
 	}
@@ -478,7 +478,7 @@ func TestLinearClientPagination(t *testing.T) {
 	}
 
 	// Second page
-	issues2, pageInfo2, err := client.GetIssues("team-1", FilterAll, pageInfo.EndCursor)
+	issues2, pageInfo2, err := client.GetIssues("team-1", FilterAll, SortUpdatedAt, pageInfo.EndCursor)
 	if err != nil {
 		t.Fatalf("page 2 error: %v", err)
 	}

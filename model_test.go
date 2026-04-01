@@ -7,8 +7,23 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 )
+
+func requireModelPtr(t *testing.T, model tea.Model) *Model {
+	t.Helper()
+
+	switch m := model.(type) {
+	case *Model:
+		return m
+	case Model:
+		return &m
+	default:
+		t.Fatalf("unexpected model type %T", model)
+		return nil
+	}
+}
 
 func TestCmuxFallbackUsesMessageWorktreePath(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -251,6 +266,55 @@ func TestSettingsTeamKeyChangeTriggersResolve(t *testing.T) {
 	}
 	if m.statusMsg != "Resolving teams..." {
 		t.Errorf("statusMsg = %q, want 'Resolving teams...'", m.statusMsg)
+	}
+}
+
+func TestSortPickerEnterCompletesSelection(t *testing.T) {
+	m := NewModel(Config{TeamKey: "TEST"})
+	initCmd := m.showSortPicker()
+	if initCmd == nil {
+		t.Fatal("expected sort picker init cmd")
+	}
+	if m.view != viewSortPicker {
+		t.Fatalf("view = %v, want sort picker", m.view)
+	}
+	if m.sortForm == nil {
+		t.Fatal("expected sort form to be initialized")
+	}
+
+	// Process the init cmd so the form becomes interactive
+	result, cmd := m.Update(initCmd())
+	model := requireModelPtr(t, result)
+	for cmd != nil {
+		result, cmd = model.Update(cmd())
+		model = requireModelPtr(t, result)
+	}
+
+	result, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = requireModelPtr(t, result)
+
+	// Process follow-up messages until the form completes
+	for i := 0; i < 10 && cmd != nil; i++ {
+		result, cmd = model.Update(cmd())
+		model = requireModelPtr(t, result)
+		if model.view == viewList {
+			break
+		}
+	}
+	if model.view != viewList {
+		t.Fatalf("view after completion = %v, want list", model.view)
+	}
+	if model.sortForm != nil {
+		t.Fatal("expected sort form to be cleared after completion")
+	}
+	if model.sortMode != SortUpdatedAt {
+		t.Fatalf("sortMode = %v, want %v", model.sortMode, SortUpdatedAt)
+	}
+	if !model.loading {
+		t.Fatal("expected sort selection to trigger reload")
+	}
+	if cmd == nil {
+		t.Fatal("expected reload cmd after sort selection")
 	}
 }
 
