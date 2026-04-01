@@ -205,11 +205,16 @@ func (lc *LinearClient) GetTeamByKey(key string) (*Team, error) {
 // Detail-only fields (description, branchName, estimate, labels, cycle, timestamps,
 // parent, relations) are fetched on demand via issueFields.
 const issueListFields = `
-	id identifier title priority url dueDate
+	id identifier title description priority url branchName dueDate
+	estimate createdAt updatedAt
 	state { name type color }
 	assignee { id name displayName }
+	labels { nodes { name color } }
+	cycle { id name }
 	project { id name }
+	parent { id identifier title }
 	children { nodes { id identifier title state { name type } } }
+	relations { nodes { type relatedIssue { id identifier title } } }
 `
 
 // issueFields is the full field set for detail/search queries.
@@ -558,6 +563,29 @@ func (lc *LinearClient) UpdateIssueAssignee(issueID, assigneeID string) error {
 	return nil
 }
 
+func (lc *LinearClient) UnassignIssue(issueID string) error {
+	q := `
+		mutation($id: ID!) {
+			issueUpdate(id: $id, input: { assigneeId: null }) {
+				success
+			}
+		}`
+
+	var result struct {
+		IssueUpdate struct {
+			Success bool `json:"success"`
+		} `json:"issueUpdate"`
+	}
+
+	if err := lc.queryWithVars(q, map[string]any{"id": issueID}, &result); err != nil {
+		return err
+	}
+	if !result.IssueUpdate.Success {
+		return fmt.Errorf("unassign failed")
+	}
+	return nil
+}
+
 type Comment struct {
 	ID        string `json:"id"`
 	Body      string `json:"body"`
@@ -615,9 +643,9 @@ func (f FilterMode) String() string {
 	case FilterTodo:
 		return "Todo"
 	case FilterInProgress:
-		return "In Progress"
+		return "● In Progress"
 	case FilterUnassigned:
-		return "Unassigned"
+		return "∅ Unassigned"
 	default:
 		return "?"
 	}

@@ -35,8 +35,8 @@ func TestFilterModeString(t *testing.T) {
 	if s := FilterAll.String(); s == "" {
 		t.Error("FilterAll.String() should not be empty")
 	}
-	if s := FilterUnassigned.String(); s != "Unassigned" {
-		t.Errorf("FilterUnassigned.String() = %q, want %q", s, "Unassigned")
+	if s := FilterUnassigned.String(); s != "∅ Unassigned" {
+		t.Errorf("FilterUnassigned.String() = %q, want %q", s, "∅ Unassigned")
 	}
 }
 

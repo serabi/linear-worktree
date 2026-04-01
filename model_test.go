@@ -196,6 +196,7 @@ func TestSettingsCompletionWithCredentials(t *testing.T) {
 		LinearAPIKey:  "lin_api_old",
 		TeamID:        "team-1",
 		TeamKey:       "TSCODE",
+		Teams:         []TeamEntry{{ID: "team-1", Key: "TSCODE"}},
 		ClaudeCommand: "claude",
 		WorktreeBase:  "../worktrees",
 		BranchPrefix:  "feature/",
@@ -228,6 +229,7 @@ func TestSettingsTeamKeyChangeTriggersResolve(t *testing.T) {
 		LinearAPIKey:  "lin_api_test",
 		TeamID:        "team-1",
 		TeamKey:       "OLD",
+		Teams:         []TeamEntry{{ID: "team-1", Key: "OLD"}},
 		ClaudeCommand: "claude",
 		WorktreeBase:  "../worktrees",
 		BranchPrefix:  "feature/",
@@ -243,8 +245,8 @@ func TestSettingsTeamKeyChangeTriggersResolve(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected resolveTeamCmd when team key changed")
 	}
-	if m.statusMsg != "Resolving team..." {
-		t.Errorf("statusMsg = %q, want 'Resolving team...'", m.statusMsg)
+	if m.statusMsg != "Resolving teams..." {
+		t.Errorf("statusMsg = %q, want 'Resolving teams...'", m.statusMsg)
 	}
 }
 
