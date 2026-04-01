@@ -84,12 +84,12 @@ func (m Model) writeDetailHeader(b *strings.Builder, issue *Issue, ctx detailRen
 	b.WriteString(issueIdentStyle.Render(issue.Identifier))
 	b.WriteString("  ")
 
-	stateColor := yellowColor.Dark
+	var stateColor lipgloss.TerminalColor = yellowColor
 	if issue.State.Color != "" {
-		stateColor = issue.State.Color
+		stateColor = lipgloss.Color(issue.State.Color)
 	}
 	b.WriteString(lipgloss.NewStyle().
-		Foreground(lipgloss.Color(stateColor)).
+		Foreground(stateColor).
 		Bold(true).
 		Render(issue.State.Name))
 	b.WriteString("\n\n")
