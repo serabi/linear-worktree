@@ -889,12 +889,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if f, ok := form.(*huh.Form); ok {
 			m.projectForm = f
 		}
+		if m.projectForm.State == huh.StateCompleted {
+			return m.handleProjectSelected()
+		}
 		return m, cmd
 	}
 	if m.view == viewStatePicker && m.stateForm != nil {
 		form, cmd := m.stateForm.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
 			m.stateForm = f
+		}
+		if m.stateForm.State == huh.StateCompleted {
+			return m.handleStateSelected()
 		}
 		return m, cmd
 	}
@@ -1737,6 +1743,48 @@ func (m *Model) showStatePicker() tea.Cmd {
 	return m.stateForm.Init()
 }
 
+func (m *Model) handleProjectSelected() (tea.Model, tea.Cmd) {
+	selected := m.pickerSelected
+	m.projectForm = nil
+	m.view = viewList
+
+	switch selected {
+	case "":
+		m.projectFilter = nil
+		m.projectName = ""
+	case "none":
+		s := "none"
+		m.projectFilter = &s
+		m.projectName = "No project"
+	default:
+		m.projectFilter = &selected
+		for _, p := range m.projects {
+			if p.ID == selected {
+				m.projectName = p.Name
+				break
+			}
+		}
+	}
+
+	m.loading = true
+	m.statusMsg = m.spinner.View() + " Loading..."
+	return m, tea.Batch(m.fetchIssues(), m.spinner.Tick)
+}
+
+func (m *Model) handleStateSelected() (tea.Model, tea.Cmd) {
+	selected := m.pickerSelected
+	issue := m.stateIssue
+	m.stateForm = nil
+	m.stateIssue = nil
+	m.view = viewList
+
+	if selected != "" && issue != nil {
+		m.statusMsg = fmt.Sprintf("Updating state for %s...", issue.Identifier)
+		return m, m.changeStateCmd(issue.ID, selected, issue.Identifier)
+	}
+	return m, nil
+}
+
 func (m *Model) updateProjectPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "esc" {
 		m.view = viewList
@@ -1750,31 +1798,7 @@ func (m *Model) updateProjectPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.projectForm.State == huh.StateCompleted {
-		selected := m.pickerSelected
-		m.projectForm = nil
-		m.view = viewList
-
-		switch selected {
-		case "":
-			m.projectFilter = nil
-			m.projectName = ""
-		case "none":
-			s := "none"
-			m.projectFilter = &s
-			m.projectName = "No project"
-		default:
-			m.projectFilter = &selected
-			for _, p := range m.projects {
-				if p.ID == selected {
-					m.projectName = p.Name
-					break
-				}
-			}
-		}
-
-		m.loading = true
-		m.statusMsg = m.spinner.View() + " Loading..."
-		return m, tea.Batch(m.fetchIssues(), m.spinner.Tick)
+		return m.handleProjectSelected()
 	}
 
 	return m, cmd
@@ -1794,16 +1818,7 @@ func (m *Model) updateStatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.stateForm.State == huh.StateCompleted {
-		selected := m.pickerSelected
-		issue := m.stateIssue
-		m.stateForm = nil
-		m.stateIssue = nil
-		m.view = viewList
-
-		if selected != "" && issue != nil {
-			m.statusMsg = fmt.Sprintf("Updating state for %s...", issue.Identifier)
-			return m, m.changeStateCmd(issue.ID, selected, issue.Identifier)
-		}
+		return m.handleStateSelected()
 	}
 
 	return m, cmd
