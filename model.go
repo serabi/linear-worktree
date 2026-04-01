@@ -321,6 +321,19 @@ const (
 	viewLinkPicker
 )
 
+type settingsDraft struct {
+	apiKey     string
+	teamKey    string
+	wtBase     string
+	copyFiles  string
+	copyDirs   string
+	claudeCmd  string
+	claudeArgs string
+	branch     string
+	maxSlots   int
+	hook       string
+	prompt     string
+}
 
 // --- Model ---
 
@@ -353,9 +366,9 @@ type Model struct {
 	detailViewport viewport.Model
 
 	// Help + spinner
-	help     help.Model
-	showHelp bool
-	keys    keyMap
+	help         help.Model
+	showHelp     bool
+	keys         keyMap
 	spinner      spinner.Model
 	loading      bool
 	loadingLabel string
@@ -369,17 +382,7 @@ type Model struct {
 	settingsTabs      [3]*huh.Form
 	settingsTabNames  [3]string
 	settingsActiveTab int
-	settingsAPIKey    string
-	settingsTeamKey   string
-	settingsWtBase    string
-	settingsCopyFiles string
-	settingsCopyDirs  string
-	settingsClaudeCmd string
-	settingsClaudeArgs string
-	settingsBranch    string
-	settingsMaxSlots  int
-	settingsHook      string
-	settingsPrompt    string
+	settingsDraft     *settingsDraft
 	settingsFirstRun  bool
 
 	// Viewer (authenticated user)
@@ -400,10 +403,10 @@ type Model struct {
 	filterForm *huh.Form
 
 	// Server search
-	searchInput  textinput.Model
-	searching    bool
-	searchTerm   string
-	savedIssues  []Issue // stash regular issues while showing search results
+	searchInput textinput.Model
+	searching   bool
+	searchTerm  string
+	savedIssues []Issue // stash regular issues while showing search results
 
 	// Link picker
 	linkPickerForm *huh.Form
@@ -413,7 +416,6 @@ type Model struct {
 	// Comment prefetch
 	prefetchSeq   int
 	lastListIndex int
-
 }
 
 // keyMap defines keybindings for the help component.
@@ -1295,7 +1297,6 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.statusMsg = fmt.Sprintf("Unassigning %s...", issue.Identifier)
 		return m, m.unassignCmd(issue.ID, issue.Identifier)
 
-
 	case key.Matches(msg, key.NewBinding(key.WithKeys("l"))):
 		issue := m.selectedIssue()
 		if issue == nil {
@@ -1537,18 +1538,22 @@ func (m *Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	f := m.activeSettingsForm()
+	debugLog.Printf("updateSettings key=%q tab=%d teamKey=%q formState=%d", msg.String(), m.settingsActiveTab, m.settingsDraft.teamKey, f.State)
 	form, cmd := f.Update(msg)
 	if updated, ok := form.(*huh.Form); ok {
 		m.settingsTabs[m.settingsActiveTab] = updated
 	}
+	debugLog.Printf("updateSettings after update: teamKey=%q formState=%d", m.settingsDraft.teamKey, m.activeSettingsForm().State)
 
 	// If the single-group form completed (Enter on last field), save settings
 	active := m.activeSettingsForm()
 	if active.State == huh.StateCompleted {
-		// Flush all tabs before saving
-		for _, tab := range m.settingsTabs {
-			if tab != nil && tab.State == huh.StateNormal {
-				tab.GetFocusedField().Blur()
+		debugLog.Printf("settings form completed on tab %d, settingsTeamKey=%q", m.settingsActiveTab, m.settingsDraft.teamKey)
+		// The completing form's Blur has already run (huh calls it in nextField).
+		// But also flush other tabs that might have unflushed edits.
+		for i, tab := range m.settingsTabs {
+			if tab != nil {
+				debugLog.Printf("  tab %d state=%d", i, tab.State)
 			}
 		}
 		return m.handleSettingsCompleted()
@@ -2094,25 +2099,28 @@ func (m *Model) activeSettingsForm() *huh.Form {
 }
 
 func (m *Model) initSettingsForm() {
-	m.settingsAPIKey = m.cfg.LinearAPIKey
+	draft := &settingsDraft{
+		apiKey:     m.cfg.LinearAPIKey,
+		wtBase:     m.cfg.WorktreeBase,
+		copyFiles:  strings.Join(m.cfg.CopyFiles, ", "),
+		copyDirs:   strings.Join(m.cfg.CopyDirs, ", "),
+		claudeCmd:  m.cfg.ClaudeCommand,
+		claudeArgs: m.cfg.ClaudeArgs,
+		branch:     m.cfg.BranchPrefix,
+		maxSlots:   m.cfg.MaxSlots,
+		hook:       m.cfg.PostCreateHook,
+		prompt:     m.cfg.PromptTemplate,
+	}
 	if len(m.cfg.Teams) > 0 {
 		keys := make([]string, len(m.cfg.Teams))
 		for i, t := range m.cfg.Teams {
 			keys[i] = t.Key
 		}
-		m.settingsTeamKey = strings.Join(keys, ", ")
+		draft.teamKey = strings.Join(keys, ", ")
 	} else {
-		m.settingsTeamKey = m.cfg.TeamKey
+		draft.teamKey = m.cfg.TeamKey
 	}
-	m.settingsWtBase = m.cfg.WorktreeBase
-	m.settingsCopyFiles = strings.Join(m.cfg.CopyFiles, ", ")
-	m.settingsCopyDirs = strings.Join(m.cfg.CopyDirs, ", ")
-	m.settingsClaudeCmd = m.cfg.ClaudeCommand
-	m.settingsClaudeArgs = m.cfg.ClaudeArgs
-	m.settingsBranch = m.cfg.BranchPrefix
-	m.settingsMaxSlots = m.cfg.MaxSlots
-	m.settingsHook = m.cfg.PostCreateHook
-	m.settingsPrompt = m.cfg.PromptTemplate
+	m.settingsDraft = draft
 	m.settingsActiveTab = 0
 
 	w := m.width - 4
@@ -2138,12 +2146,12 @@ func (m *Model) buildTab(index, w int) *huh.Form {
 					Description("Personal API key from Linear Settings > API. Stored securely in your OS keychain, never written to the config file.").
 					Placeholder("lin_api_...").
 					EchoMode(huh.EchoModePassword).
-					Value(&m.settingsAPIKey),
+					Value(&m.settingsDraft.apiKey),
 				huh.NewInput().
 					Title("Team Keys (comma-separated)").
 					Description("Add multiple teams separated by commas. First team is your default. Press T from the issue list to switch between teams.").
 					Placeholder("TSCODE, DHMIG, OTHER").
-					Value(&m.settingsTeamKey),
+					Value(&m.settingsDraft.teamKey),
 			),
 		).WithWidth(w).WithShowHelp(false).WithShowErrors(true)
 	case 1:
@@ -2153,22 +2161,22 @@ func (m *Model) buildTab(index, w int) *huh.Form {
 					Title("Worktree Base Directory").
 					Description("Where new git worktrees are created, relative to the repo root. Each issue gets a subdirectory here.").
 					Placeholder("../worktrees").
-					Value(&m.settingsWtBase),
+					Value(&m.settingsDraft.wtBase),
 				huh.NewInput().
 					Title("Files to Copy (comma-separated)").
 					Description("Files copied from the main repo into each new worktree. Add multiple separated by commas.").
 					Placeholder(".env, .envrc, .tool-versions").
-					Value(&m.settingsCopyFiles),
+					Value(&m.settingsDraft.copyFiles),
 				huh.NewInput().
 					Title("Directories to Copy (comma-separated)").
 					Description("Directories copied into each new worktree. Add multiple separated by commas.").
 					Placeholder(".claude, .config").
-					Value(&m.settingsCopyDirs),
+					Value(&m.settingsDraft.copyDirs),
 				huh.NewInput().
 					Title("Branch Prefix").
 					Description("Prefix added to git branch names when creating worktrees. Issue TSCODE-123 becomes feature/tscode-123.").
 					Placeholder("feature/").
-					Value(&m.settingsBranch),
+					Value(&m.settingsDraft.branch),
 			),
 		).WithWidth(w).WithShowHelp(false).WithShowErrors(true)
 	default:
@@ -2178,7 +2186,7 @@ func (m *Model) buildTab(index, w int) *huh.Form {
 					Title("Claude Command").
 					Description("The command used to launch Claude Code. Change this if claude is installed at a custom path.").
 					Placeholder("claude").
-					Value(&m.settingsClaudeCmd).
+					Value(&m.settingsDraft.claudeCmd).
 					Validate(func(s string) error {
 						s = strings.TrimSpace(s)
 						if s == "" {
@@ -2189,16 +2197,16 @@ func (m *Model) buildTab(index, w int) *huh.Form {
 				huh.NewInput().
 					Title("Claude Args").
 					Description("Extra flags appended to every Claude launch (e.g. --model sonnet, --verbose, --allowedTools).").
-					Value(&m.settingsClaudeArgs),
+					Value(&m.settingsDraft.claudeArgs),
 				huh.NewInput().
 					Title("Post-Create Hook").
 					Description("Shell command that runs inside the worktree directory after creation. Use for setup tasks like installing dependencies.").
 					Placeholder("npm install && direnv allow").
-					Value(&m.settingsHook),
+					Value(&m.settingsDraft.hook),
 				huh.NewText().
 					Title("Prompt Template").
 					Description("Custom prompt sent to Claude on launch. Supports Go template variables: {{.Identifier}}, {{.Title}}, {{.Description}}. Leave empty for the default prompt.").
-					Value(&m.settingsPrompt),
+					Value(&m.settingsDraft.prompt),
 				huh.NewSelect[int]().
 					Title("Max Slots").
 					Description("Maximum number of concurrent Claude sessions in the E-layout. Only applies when running inside cmux.").
@@ -2207,7 +2215,7 @@ func (m *Model) buildTab(index, w int) *huh.Form {
 						huh.NewOption("3 slots", 3),
 						huh.NewOption("4 slots", 4),
 					).
-					Value(&m.settingsMaxSlots),
+					Value(&m.settingsDraft.maxSlots),
 			),
 		).WithWidth(w).WithShowHelp(false).WithShowErrors(true)
 	}
@@ -2260,10 +2268,10 @@ func (m Model) renderSettingsTabBar() string {
 }
 
 func (m *Model) handleSettingsCompleted() (tea.Model, tea.Cmd) {
-	debugLog.Printf("handleSettingsCompleted: settingsAPIKey=%q settingsTeamKey=%q", m.settingsAPIKey, m.settingsTeamKey)
+	debugLog.Printf("handleSettingsCompleted: settingsAPIKey=%q settingsTeamKey=%q", m.settingsDraft.apiKey, m.settingsDraft.teamKey)
 
-	apiKey := strings.TrimSpace(m.settingsAPIKey)
-	teamKeys := splitComma(m.settingsTeamKey)
+	apiKey := strings.TrimSpace(m.settingsDraft.apiKey)
+	teamKeys := splitComma(m.settingsDraft.teamKey)
 
 	debugLog.Printf("handleSettingsCompleted: parsed teamKeys=%v", teamKeys)
 
@@ -2275,15 +2283,15 @@ func (m *Model) handleSettingsCompleted() (tea.Model, tea.Cmd) {
 
 	newCfg := m.cfg
 	newCfg.LinearAPIKey = apiKey
-	newCfg.WorktreeBase = strings.TrimSpace(m.settingsWtBase)
-	newCfg.CopyFiles = splitComma(m.settingsCopyFiles)
-	newCfg.CopyDirs = splitComma(m.settingsCopyDirs)
-	newCfg.ClaudeCommand = strings.TrimSpace(m.settingsClaudeCmd)
-	newCfg.ClaudeArgs = strings.TrimSpace(m.settingsClaudeArgs)
-	newCfg.BranchPrefix = strings.TrimSpace(m.settingsBranch)
-	newCfg.MaxSlots = m.settingsMaxSlots
-	newCfg.PostCreateHook = strings.TrimSpace(m.settingsHook)
-	newCfg.PromptTemplate = m.settingsPrompt
+	newCfg.WorktreeBase = strings.TrimSpace(m.settingsDraft.wtBase)
+	newCfg.CopyFiles = splitComma(m.settingsDraft.copyFiles)
+	newCfg.CopyDirs = splitComma(m.settingsDraft.copyDirs)
+	newCfg.ClaudeCommand = strings.TrimSpace(m.settingsDraft.claudeCmd)
+	newCfg.ClaudeArgs = strings.TrimSpace(m.settingsDraft.claudeArgs)
+	newCfg.BranchPrefix = strings.TrimSpace(m.settingsDraft.branch)
+	newCfg.MaxSlots = m.settingsDraft.maxSlots
+	newCfg.PostCreateHook = strings.TrimSpace(m.settingsDraft.hook)
+	newCfg.PromptTemplate = m.settingsDraft.prompt
 
 	if newCfg.WorktreeBase == "" {
 		newCfg.WorktreeBase = "../worktrees"
