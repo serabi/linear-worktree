@@ -107,6 +107,7 @@ func (m Model) viewList() string {
 	}
 
 	status := statusBarStyle.Render(m.statusMsg)
+	legend := statusBarStyle.Render(renderLegendCompact())
 	shortcutText := "enter:detail  c:claude  p:project  f:filter  s:settings  ?:help"
 	if len(m.cfg.Teams) > 1 {
 		shortcutText = "enter:detail  c:claude  1-9:team  p:project  f:filter  s:settings  ?:help"
@@ -115,7 +116,7 @@ func (m Model) viewList() string {
 	}
 	shortcuts := statusBarStyle.Render(shortcutText)
 	base := appStyle.Render(
-		lipgloss.JoinVertical(lipgloss.Left, slotBar, teamBar, content, status, shortcuts),
+		lipgloss.JoinVertical(lipgloss.Left, slotBar, teamBar, content, status, legend, shortcuts),
 	)
 
 	if m.showHelp {
@@ -126,11 +127,12 @@ func (m Model) viewList() string {
 		}
 		m.help.Width = helpWidth
 		helpContent := m.help.View(m.keys)
+		legend := renderLegend()
 		helpBox := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("#7C3AED")).
 			Padding(1, 2).
-			Render(titleStyle.Render("Keybindings") + "\n\n" + helpContent + "\n\n" + statusBarStyle.Render("Press ? to close"))
+			Render(titleStyle.Render("Keybindings") + "\n\n" + helpContent + "\n\n" + legend + "\n\n" + statusBarStyle.Render("Press ? to close"))
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, helpBox)
 	}
 
@@ -262,4 +264,34 @@ func (m Model) viewPicker(title string, form *huh.Form) string {
 		lipgloss.Center, lipgloss.Center,
 		setupStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, body, status)),
 	)
+}
+
+func renderLegendCompact() string {
+	return statusIcon("backlog") + " Backlog " +
+		statusIcon("unstarted") + " Todo " +
+		statusIcon("started") + " In Progress " +
+		statusIcon("completed") + " Done  " +
+		priorityIcon(1) + " Urgent " +
+		priorityIcon(2) + " High " +
+		priorityIcon(3) + " Med " +
+		priorityIcon(4) + " Low"
+}
+
+func renderLegend() string {
+	heading := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7C3AED"))
+
+	statusLegend := heading.Render("Status") + "\n" +
+		statusIcon("backlog") + " Backlog  " +
+		statusIcon("unstarted") + " Todo  " +
+		statusIcon("started") + " In Progress  " +
+		statusIcon("completed") + " Done  " +
+		statusIcon("cancelled") + " Cancelled"
+
+	priorityLegend := heading.Render("Priority") + "\n" +
+		priorityIcon(1) + " Urgent  " +
+		priorityIcon(2) + " High  " +
+		priorityIcon(3) + " Medium  " +
+		priorityIcon(4) + " Low"
+
+	return statusLegend + "\n\n" + priorityLegend
 }
