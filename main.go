@@ -13,6 +13,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 		os.Exit(1)
 	}
+	debugLog.Printf("startup: TeamKey=%q Teams=%v", cfg.TeamKey, cfg.Teams)
 
 	p := tea.NewProgram(
 		NewModel(cfg),

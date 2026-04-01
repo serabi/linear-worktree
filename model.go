@@ -759,7 +759,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.list.SetSize(msg.Width-2, msg.Height-4)
+		listHeight := msg.Height - 6 // header + status + help
+		if m.useCmux {
+			listHeight -= 1 // slot bar
+		}
+		if len(m.cfg.Teams) > 1 {
+			listHeight -= 2 // team tab bar
+		}
+		m.list.SetSize(msg.Width-2, listHeight)
 		if m.settingsTabs[0] != nil {
 			w := msg.Width - 4
 			if w < 60 {
