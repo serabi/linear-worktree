@@ -149,14 +149,6 @@ func (m *Model) showSelectedIssueDetail() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) beginCommentFromSelection() (tea.Model, tea.Cmd) {
-	issue := m.selectedIssue()
-	if issue == nil {
-		m.statusMsg = "No issue selected"
-		return m, nil
-	}
-	return m.beginComment(issue)
-}
 
 func (m *Model) beginComment(issue *Issue) (tea.Model, tea.Cmd) {
 	m.view = viewComment

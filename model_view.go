@@ -9,30 +9,48 @@ import (
 )
 
 func (m Model) View() string {
+	var base string
 	switch m.view {
 	case viewSettings:
-		return m.viewSettings()
+		base = m.viewSettings()
 	case viewComment:
-		return m.viewComment()
+		base = m.viewComment()
 	case viewDetail:
-		return m.viewDetail()
+		base = m.viewDetail()
 	case viewLaunch:
-		return m.viewLaunch()
+		base = m.viewLaunch()
 	case viewPrompt:
-		return m.viewPrompt()
+		base = m.viewPrompt()
 	case viewProjectPicker:
-		return m.viewPicker("Select Project", m.projectForm)
+		base = m.viewPicker("Select Project", m.projectForm)
 	case viewStatePicker:
-		return m.viewPicker("Transition State", m.stateForm)
+		base = m.viewPicker("Transition State", m.stateForm)
 	case viewLinkPicker:
-		return m.viewPicker("Open Link", m.linkPickerForm)
+		base = m.viewPicker("Open Link", m.linkPickerForm)
 	case viewFilterPicker:
-		return m.viewPicker("Filter Issues", m.filterForm)
+		base = m.viewPicker("Filter Issues", m.filterForm)
 	case viewSearch:
-		return m.viewSearchInput()
+		base = m.viewSearchInput()
 	default:
-		return m.viewList()
+		base = m.viewList()
 	}
+
+	if m.confirm != nil {
+		yKey := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#22C55E")).Render("y")
+		nKey := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#EF4444")).Render("n")
+		dialog := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#7C3AED")).
+			Padding(1, 3).
+			Render(
+				titleStyle.Render(m.confirm.title) + "\n\n" +
+					m.confirm.message + "\n\n" +
+					yKey + " yes  " + nKey + " no",
+			)
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, dialog)
+	}
+
+	return base
 }
 
 func (m Model) renderTeamTabBar() string {
@@ -73,9 +91,13 @@ func (m Model) viewList() string {
 		listH := m.list.Height()
 		var hint string
 		if m.filter == FilterAssigned {
+			scope := m.cfg.TeamKey
+			if m.projectName != "" {
+				scope = m.cfg.TeamKey + " > " + m.projectName
+			}
 			hint = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#EAB308")).
-				Render(fmt.Sprintf("No issues assigned to you in %s.\nPress tab or f to see all issues.", m.cfg.TeamKey))
+				Render(fmt.Sprintf("No issues assigned to you in %s.\nPress tab or f to see all issues.", scope))
 		} else {
 			hint = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#888")).
@@ -198,7 +220,7 @@ func (m Model) viewComment() string {
 		Render(fmt.Sprintf("💬 Comment on %s: ", identifier)) + m.commentInput.View()
 
 	status := statusBarStyle.Render("[Enter] post  [Esc] cancel")
-	return appStyle.Render(lipgloss.JoinVertical(lipgloss.Left, m.list.View(), commentBar, status))
+	return appStyle.Render(lipgloss.JoinVertical(lipgloss.Left, m.detailViewport.View(), commentBar, status))
 }
 
 func (m Model) viewSettings() string {

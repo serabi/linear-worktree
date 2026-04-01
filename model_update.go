@@ -45,6 +45,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		if m.confirm != nil {
+			switch msg.String() {
+			case "y":
+				c := m.confirm
+				m.confirm = nil
+				return c.onYes(&m)
+			default:
+				m.confirm = nil
+				return m, nil
+			}
+		}
+
+		if msg.String() == "q" || msg.String() == "ctrl+c" {
+			if m.list.FilterState() == list.Filtering && msg.String() != "ctrl+c" {
+				var cmd tea.Cmd
+				m.list, cmd = m.list.Update(msg)
+				return m, cmd
+			}
+			m.confirm = &confirmDialog{
+				action:  confirmQuit,
+				title:   "Quit?",
+				message: "Are you sure you want to exit?",
+				onYes:   func(m *Model) (tea.Model, tea.Cmd) { return m, tea.Quit },
+			}
+			return m, nil
+		}
+
 		if m.list.FilterState() == list.Filtering {
 			var cmd tea.Cmd
 			m.list, cmd = m.list.Update(msg)
@@ -358,9 +385,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
-	case key.Matches(msg, key.NewBinding(key.WithKeys("q"))):
-		return m, tea.Quit
-
 	case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
 		return m.cycleFilter()
 
@@ -377,13 +401,20 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.createSelectedWorktree()
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("x"))):
-		return m.closeSelectedSlot()
+		issue := m.selectedIssue()
+		if issue == nil {
+			return m, nil
+		}
+		m.confirm = &confirmDialog{
+			action:  confirmCloseSlot,
+			title:   "Close Slot?",
+			message: fmt.Sprintf("Close the Claude session for %s?", issue.Identifier),
+			onYes:   func(m *Model) (tea.Model, tea.Cmd) { return m.closeSelectedSlot() },
+		}
+		return m, nil
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("d", "enter"))):
 		return m.showSelectedIssueDetail()
-
-	case key.Matches(msg, key.NewBinding(key.WithKeys("m"))):
-		return m.beginCommentFromSelection()
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("g"))):
 		return m.openSelectedIssue()
@@ -405,10 +436,32 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.beginSearchMode()
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("a"))):
-		return m.assignSelectedIssueToViewer()
+		issue := m.selectedIssue()
+		if issue == nil {
+			m.statusMsg = "No issue selected"
+			return m, nil
+		}
+		m.confirm = &confirmDialog{
+			action:  confirmAssign,
+			title:   "Assign?",
+			message: fmt.Sprintf("Assign %s to you?", issue.Identifier),
+			onYes:   func(m *Model) (tea.Model, tea.Cmd) { return m.assignSelectedIssueToViewer() },
+		}
+		return m, nil
 
-	case key.Matches(msg, key.NewBinding(key.WithKeys("A"))):
-		return m.unassignSelectedIssue()
+	case key.Matches(msg, key.NewBinding(key.WithKeys("u"))):
+		issue := m.selectedIssue()
+		if issue == nil {
+			m.statusMsg = "No issue selected"
+			return m, nil
+		}
+		m.confirm = &confirmDialog{
+			action:  confirmUnassign,
+			title:   "Unassign?",
+			message: fmt.Sprintf("Unassign %s?", issue.Identifier),
+			onYes:   func(m *Model) (tea.Model, tea.Cmd) { return m.unassignSelectedIssue() },
+		}
+		return m, nil
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("l"))):
 		return m.openSelectedIssueLinks()
@@ -420,8 +473,7 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) updateComment(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
-		m.view = viewList
-		m.commentIssue = nil
+		m.view = viewDetail
 		m.statusMsg = m.buildStatusLine()
 		return m, nil
 
@@ -429,13 +481,21 @@ func (m *Model) updateComment(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		body := strings.TrimSpace(m.commentInput.Value())
 		if body == "" {
 			m.statusMsg = "Empty comment, cancelled"
-			m.view = viewList
+			m.view = viewDetail
 			return m, nil
 		}
 		issue := m.commentIssue
-		m.view = viewList
-		m.statusMsg = fmt.Sprintf("Posting comment on %s...", issue.Identifier)
-		return m, m.postCommentCmd(issue.ID, body, issue.Identifier)
+		m.confirm = &confirmDialog{
+			action:  confirmPostComment,
+			title:   "Post Comment?",
+			message: fmt.Sprintf("Post comment on %s?", issue.Identifier),
+			onYes: func(m *Model) (tea.Model, tea.Cmd) {
+				m.view = viewDetail
+				m.statusMsg = fmt.Sprintf("Posting comment on %s...", issue.Identifier)
+				return m, m.postCommentCmd(issue.ID, body, issue.Identifier)
+			},
+		}
+		return m, nil
 	}
 
 	var cmd tea.Cmd
@@ -449,8 +509,6 @@ func (m *Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.view = viewList
 		m.detailIssue = nil
 		return m, nil
-	case "ctrl+c", "q":
-		return m, tea.Quit
 	case "m":
 		if m.detailIssue != nil {
 			return m.beginComment(m.detailIssue)
@@ -483,8 +541,6 @@ func (m *Model) updateLaunch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.view = viewList
 		m.launchIssue = nil
 		return m, nil
-	case "ctrl+c", "q":
-		return m, tea.Quit
 	case "enter":
 		item := m.launchList.SelectedItem()
 		if item == nil {
@@ -539,8 +595,6 @@ func (m *Model) updatePrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.view = viewLaunch
 		return m, nil
-	case "ctrl+c":
-		return m, tea.Quit
 	case "ctrl+s":
 		prompt := m.promptArea.Value()
 		m.view = viewList
