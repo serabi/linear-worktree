@@ -1,0 +1,186 @@
+package main
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+)
+
+func setupTestRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+
+	cmds := [][]string{
+		{"git", "init"},
+		{"git", "config", "user.email", "test@test.com"},
+		{"git", "config", "user.name", "Test"},
+		{"git", "commit", "--allow-empty", "-m", "init"},
+	}
+
+	for _, args := range cmds {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("setup %v: %s: %v", args, string(out), err)
+		}
+	}
+
+	return dir
+}
+
+func TestCreateWorktree(t *testing.T) {
+	repoDir := setupTestRepo(t)
+	worktreeBase := filepath.Join(t.TempDir(), "worktrees")
+
+	cfg := Config{
+		BranchPrefix: "feature/",
+		WorktreeBase: worktreeBase,
+		CopyFiles:    []string{},
+		CopyDirs:     []string{},
+	}
+
+	// Create a test file to copy
+	os.WriteFile(filepath.Join(repoDir, ".env"), []byte("SECRET=123"), 0644)
+	cfg.CopyFiles = []string{".env"}
+
+	// Change to repo dir for FindRepoRoot
+	origDir, _ := os.Getwd()
+	os.Chdir(repoDir)
+	defer os.Chdir(origDir)
+
+	path, err := CreateWorktree("TEST-123", cfg)
+	if err != nil {
+		t.Fatalf("CreateWorktree() error: %v", err)
+	}
+
+	// Verify worktree was created
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		t.Fatalf("worktree path %s does not exist", path)
+	}
+
+	// Verify .env was copied
+	envPath := filepath.Join(path, ".env")
+	if _, err := os.Stat(envPath); os.IsNotExist(err) {
+		t.Error(".env was not copied to worktree")
+	}
+
+	// Verify branch was created
+	cmd := exec.Command("git", "branch", "--list", "feature/test-123")
+	cmd.Dir = repoDir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git branch list: %v", err)
+	}
+	if len(out) == 0 {
+		t.Error("branch feature/test-123 was not created")
+	}
+
+	// Creating again should return the same path (idempotent)
+	path2, err := CreateWorktree("TEST-123", cfg)
+	if err != nil {
+		t.Fatalf("CreateWorktree() second call error: %v", err)
+	}
+	if path != path2 {
+		t.Errorf("second call returned different path: %s vs %s", path, path2)
+	}
+}
+
+func TestListWorktrees(t *testing.T) {
+	repoDir := setupTestRepo(t)
+
+	origDir, _ := os.Getwd()
+	os.Chdir(repoDir)
+	defer os.Chdir(origDir)
+
+	wts, err := ListWorktrees()
+	if err != nil {
+		t.Fatalf("ListWorktrees() error: %v", err)
+	}
+
+	// Should have at least the main worktree
+	if len(wts) < 1 {
+		t.Fatal("expected at least 1 worktree (main)")
+	}
+}
+
+func TestRemoveWorktree(t *testing.T) {
+	repoDir := setupTestRepo(t)
+	worktreeBase := filepath.Join(t.TempDir(), "worktrees")
+
+	cfg := Config{
+		BranchPrefix: "feature/",
+		WorktreeBase: worktreeBase,
+	}
+
+	origDir, _ := os.Getwd()
+	os.Chdir(repoDir)
+	defer os.Chdir(origDir)
+
+	path, err := CreateWorktree("TEST-999", cfg)
+	if err != nil {
+		t.Fatalf("CreateWorktree() error: %v", err)
+	}
+
+	err = RemoveWorktree(path)
+	if err != nil {
+		t.Fatalf("RemoveWorktree() error: %v", err)
+	}
+
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("worktree directory should not exist after removal")
+	}
+}
+
+func TestCopyFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	src := filepath.Join(tmpDir, "source.txt")
+	dst := filepath.Join(tmpDir, "dest.txt")
+
+	os.WriteFile(src, []byte("hello world"), 0644)
+
+	err := copyFile(src, dst)
+	if err != nil {
+		t.Fatalf("copyFile() error: %v", err)
+	}
+
+	data, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatalf("read dest: %v", err)
+	}
+	if string(data) != "hello world" {
+		t.Errorf("copied content = %q, want 'hello world'", string(data))
+	}
+}
+
+func TestCopyDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcDir := filepath.Join(tmpDir, "src")
+	dstDir := filepath.Join(tmpDir, "dst")
+
+	os.MkdirAll(filepath.Join(srcDir, "sub"), 0755)
+	os.WriteFile(filepath.Join(srcDir, "file1.txt"), []byte("one"), 0644)
+	os.WriteFile(filepath.Join(srcDir, "sub", "file2.txt"), []byte("two"), 0644)
+
+	err := copyDir(srcDir, dstDir)
+	if err != nil {
+		t.Fatalf("copyDir() error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dstDir, "file1.txt"))
+	if err != nil || string(data) != "one" {
+		t.Errorf("file1.txt not copied correctly")
+	}
+
+	data, err = os.ReadFile(filepath.Join(dstDir, "sub", "file2.txt"))
+	if err != nil || string(data) != "two" {
+		t.Errorf("sub/file2.txt not copied correctly")
+	}
+}
+
+func TestCopyDirNonExistent(t *testing.T) {
+	err := copyDir("/nonexistent/path", "/tmp/dest")
+	if err != nil {
+		t.Errorf("copyDir with nonexistent source should return nil, got: %v", err)
+	}
+}
