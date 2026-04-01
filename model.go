@@ -263,7 +263,7 @@ func defaultKeyMap() keyMap {
 		Worktree: key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "worktree")),
 		Close:    key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "close slot")),
 		Comment:  key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "comment")),
-		Detail:   key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "detail")),
+		Detail:   key.NewBinding(key.WithKeys("d", "enter"), key.WithHelp("enter/d", "detail")),
 		Filter:   key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "filter")),
 		Open:     key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "open")),
 		Refresh:  key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
@@ -692,7 +692,7 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.statusMsg = fmt.Sprintf("%s is not in a slot", issue.Identifier)
 		return m, nil
 
-	case key.Matches(msg, key.NewBinding(key.WithKeys("d"))):
+	case key.Matches(msg, key.NewBinding(key.WithKeys("d", "enter"))):
 		issue := m.selectedIssue()
 		if issue == nil {
 			m.statusMsg = "No issue selected"
@@ -890,7 +890,7 @@ func (m Model) buildStatusLine() string {
 		active := m.paneManager.ActiveCount()
 		parts = append(parts, fmt.Sprintf("slots: %d/%d", active, m.cfg.MaxSlots))
 	}
-	parts = append(parts, "c:claude w:wt m:comment d:detail x:close tab:filter")
+	parts = append(parts, "c:claude w:wt m:comment enter:detail x:close tab:filter")
 	return strings.Join(parts, " | ")
 }
 
