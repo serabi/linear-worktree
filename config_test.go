@@ -129,7 +129,10 @@ func TestSaveConfigStoresAPIKeyInKeyring(t *testing.T) {
 	}
 
 	// Verify: file should NOT contain the API key
-	fileData, _ := os.ReadFile(path)
+	fileData, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read config file %q: %v", path, err)
+	}
 	var fileCfg Config
 	if err := json.Unmarshal(fileData, &fileCfg); err != nil {
 		t.Fatalf("unmarshal: %v", err)
