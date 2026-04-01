@@ -283,7 +283,7 @@ func (lc *LinearClient) GetIssues(teamID string, filter FilterMode, after string
 
 func (lc *LinearClient) AddComment(issueID, body string) error {
 	q := `
-		mutation($issueId: ID!, $body: String!) {
+		mutation($issueId: String!, $body: String!) {
 			commentCreate(input: {
 				issueId: $issueId
 				body: $body

@@ -80,7 +80,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.loading {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
-			m.statusMsg = m.spinner.View() + " " + m.loadingLabel
+			if m.view != viewDetail {
+				m.statusMsg = m.spinner.View() + " " + m.loadingLabel
+			}
 			return m, cmd
 		}
 		return m, nil
@@ -148,6 +150,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case commentsLoadedMsg:
+		if m.loadingLabel == "Loading comments..." {
+			m.loading = false
+		}
 		if msg.err == nil {
 			m.cachedComments = msg.comments
 			m.cachedCommentID = msg.issueID
@@ -447,6 +452,7 @@ func (m *Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "d":
 		m.view = viewList
 		m.detailIssue = nil
+		m.loading = false
 		return m, nil
 	case "ctrl+c", "q":
 		return m, tea.Quit

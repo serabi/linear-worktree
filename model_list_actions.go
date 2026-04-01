@@ -144,8 +144,11 @@ func (m *Model) showSelectedIssueDetail() (tea.Model, tea.Cmd) {
 	m.detailViewport.SetContent(m.buildDetailContent(issue, contentWidth))
 	m.detailViewport.GotoTop()
 	if issue.ID != m.cachedCommentID {
+		m.loading = true
+		m.loadingLabel = "Loading comments..."
 		return m, tea.Batch(m.fetchCommentsCmd(issue.ID), m.spinner.Tick)
 	}
+	m.loading = false
 	return m, nil
 }
 
