@@ -167,8 +167,7 @@ type cmuxSlotOpenedMsg struct {
 }
 
 type teamsLoadedMsg struct {
-	teams []Team
-	err   error
+	err error
 }
 
 type setupCompleteMsg struct {
@@ -341,7 +340,7 @@ func NewModel(cfg Config) Model {
 	// Detail viewport
 	vp := viewport.New(38, 20)
 
-	return Model{
+	m := Model{
 		cfg:              cfg,
 		list:             l,
 		worktreeBranches: make(map[string]bool),
@@ -358,11 +357,14 @@ func NewModel(cfg Config) Model {
 		spinner:          sp,
 		detailViewport:   vp,
 	}
+	if cfg.NeedsSetup() {
+		m.view = viewSetup
+	}
+	return m
 }
 
 func (m Model) Init() tea.Cmd {
 	if m.cfg.NeedsSetup() {
-		m.view = viewSetup
 		return textinput.Blink
 	}
 	cmds := []tea.Cmd{
