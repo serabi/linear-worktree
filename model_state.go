@@ -179,6 +179,16 @@ func (l launchOption) Title() string       { return l.title }
 func (l launchOption) Description() string { return l.desc }
 func (l launchOption) FilterValue() string { return l.title }
 
+type linkItem struct {
+	label   string
+	value   string
+	isIssue bool
+}
+
+func (l linkItem) Title() string       { return l.label }
+func (l linkItem) Description() string { return "" }
+func (l linkItem) FilterValue() string { return l.label }
+
 func statusIcon(stateType string) string {
 	switch stateType {
 	case "backlog":
@@ -300,6 +310,11 @@ type branchIssueFoundMsg struct {
 	issue *Issue
 }
 
+type issueNavigatedMsg struct {
+	issue *Issue
+	err   error
+}
+
 type searchResultsMsg struct {
 	issues []Issue
 	err    error
@@ -327,7 +342,7 @@ const (
 	viewStatePicker
 	viewFilterPicker
 	viewSearch
-	viewLinkPicker
+	viewLinkList
 )
 
 type settingsDraft struct {
@@ -403,9 +418,10 @@ type Model struct {
 	searchTerm  string
 	savedIssues []Issue
 
-	linkPickerForm *huh.Form
-	linkPickerURLs []string
-	linkSelected   string
+	linkList         list.Model
+	linkReturnToView viewMode
+
+	detailHistory []*Issue
 
 	prefetchSeq   int
 	lastListIndex int

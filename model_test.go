@@ -453,5 +453,25 @@ func TestBuildPromptInvalidTemplate(t *testing.T) {
 	}
 }
 
+func TestTruncateURL(t *testing.T) {
+	tests := []struct {
+		url    string
+		maxLen int
+		want   string
+	}{
+		{"https://example.com/path", 30, "example.com/path"},
+		{"https://example.com/very/long/path/that/exceeds/the/limit", 30, "example.com/very/long/path/th…"},
+		{"https://example.com/page#section", 40, "example.com/page#section"},
+		{"not-a-url", 5, "not-…"},
+		{"short", 10, "short"},
+	}
+	for _, tt := range tests {
+		got := truncateURL(tt.url, tt.maxLen)
+		if got != tt.want {
+			t.Errorf("truncateURL(%q, %d) = %q, want %q", tt.url, tt.maxLen, got, tt.want)
+		}
+	}
+}
+
 // Ensure huh is used (compile-time check)
 var _ = huh.StateCompleted

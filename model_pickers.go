@@ -2,10 +2,12 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 	osexec "os/exec"
 	"regexp"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 )
@@ -217,46 +219,98 @@ func (m *Model) updateStatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *Model) showLinkPicker(urls []string) tea.Cmd {
-	options := make([]huh.Option[string], len(urls))
-	for i, u := range urls {
-		options[i] = huh.NewOption(u, u)
-	}
-
-	m.linkPickerURLs = urls
-	m.linkSelected = ""
-	m.linkPickerForm = huh.NewForm(
-		huh.NewGroup(
-			huh.NewSelect[string]().
-				Title("Open link").
-				Options(options...).
-				Value(&m.linkSelected),
-		),
-	).WithWidth(70).WithShowHelp(false).WithShowErrors(false)
-	m.view = viewLinkPicker
-	return m.linkPickerForm.Init()
+func (m *Model) showLinkList(items []list.Item, title string) {
+	m.linkList.Title = title
+	m.linkList.SetItems(items)
+	m.linkList.SetSize(m.width-4, m.height-4)
+	m.linkList.Select(0)
+	m.view = viewLinkList
 }
 
-func (m *Model) updateLinkPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.String() == "esc" {
-		m.view = viewList
-		m.linkPickerForm = nil
+func (m *Model) showDetailLinks() (tea.Model, tea.Cmd) {
+	issue := m.detailIssue
+	var items []list.Item
+
+	if issue.Parent != nil {
+		items = append(items, linkItem{
+			label:   fmt.Sprintf("Parent: %s  %s", issue.Parent.Identifier, issue.Parent.Title),
+			value:   issue.Parent.ID,
+			isIssue: true,
+		})
+	}
+
+	for _, child := range issue.Children.Nodes {
+		icon := statusIcon(child.State.Type)
+		items = append(items, linkItem{
+			label:   fmt.Sprintf("Sub-issue: %s %s  %s", icon, child.Identifier, child.Title),
+			value:   child.ID,
+			isIssue: true,
+		})
+	}
+
+	for _, rel := range issue.Relations.Nodes {
+		prefix := rel.Type
+		switch rel.Type {
+		case "blocks":
+			prefix = "Blocking"
+		case "is blocked by", "blocked":
+			prefix = "Blocked by"
+		case "related":
+			prefix = "Related"
+		case "duplicate":
+			prefix = "Duplicate"
+		}
+		items = append(items, linkItem{
+			label:   fmt.Sprintf("%s: %s  %s", prefix, rel.RelatedIssue.Identifier, rel.RelatedIssue.Title),
+			value:   rel.RelatedIssue.ID,
+			isIssue: true,
+		})
+	}
+
+	for _, u := range extractURLs(issue.Description) {
+		items = append(items, linkItem{
+			label: truncateURL(u, 60),
+			value: u,
+		})
+	}
+
+	if len(items) == 0 {
+		m.statusMsg = "No links or related issues"
 		return m, nil
 	}
 
-	form, cmd := m.linkPickerForm.Update(msg)
-	if f, ok := form.(*huh.Form); ok {
-		m.linkPickerForm = f
-	}
-	if m.linkPickerForm.State == huh.StateCompleted {
-		selected := m.linkSelected
-		m.linkPickerForm = nil
-		m.view = viewList
-		if selected != "" {
-			openBrowser(selected)
+	m.linkReturnToView = viewDetail
+	m.showLinkList(items, "Navigate")
+	return m, nil
+}
+
+func (m *Model) updateLinkList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.view = m.linkReturnToView
+		return m, nil
+	case "enter":
+		item := m.linkList.SelectedItem()
+		if item == nil {
+			return m, nil
 		}
+		li := item.(linkItem)
+		if li.isIssue {
+			if m.detailIssue != nil {
+				m.detailHistory = append(m.detailHistory, m.detailIssue)
+			}
+			m.loading = true
+			m.loadingLabel = "Loading issue..."
+			m.view = viewDetail
+			return m, tea.Batch(m.navigateToIssueCmd(li.value), m.spinner.Tick)
+		}
+		openBrowser(li.value)
+		m.view = m.linkReturnToView
 		return m, nil
 	}
+
+	var cmd tea.Cmd
+	m.linkList, cmd = m.linkList.Update(msg)
 	return m, cmd
 }
 
@@ -292,6 +346,24 @@ func (m *Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.searchInput, cmd = m.searchInput.Update(msg)
 	return m, cmd
+}
+
+func truncateURL(raw string, maxLen int) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		if len(raw) > maxLen {
+			return raw[:maxLen-1] + "…"
+		}
+		return raw
+	}
+	label := u.Host + u.Path
+	if u.Fragment != "" {
+		label += "#" + u.Fragment
+	}
+	if len(label) > maxLen {
+		label = label[:maxLen-1] + "…"
+	}
+	return label
 }
 
 var urlPattern = regexp.MustCompile(`https?://[^\s)>\]]+`)

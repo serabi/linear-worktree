@@ -490,6 +490,46 @@ func TestLinearClientPagination(t *testing.T) {
 	}
 }
 
+func TestLinearClientGetIssueByID(t *testing.T) {
+	server := mockLinearServer(func(query string, vars map[string]any) (int, interface{}) {
+		id, _ := vars["id"].(string)
+		if id != "issue-42" {
+			t.Errorf("expected id 'issue-42', got %q", id)
+		}
+		return 200, map[string]interface{}{
+			"issue": map[string]interface{}{
+				"id": "issue-42", "identifier": "TEST-42", "title": "Fetched issue",
+			},
+		}
+	})
+	defer server.Close()
+
+	issue, err := testClient(server).GetIssueByID("issue-42")
+	if err != nil {
+		t.Fatalf("GetIssueByID() error: %v", err)
+	}
+	if issue == nil {
+		t.Fatal("expected issue, got nil")
+	}
+	if issue.Identifier != "TEST-42" {
+		t.Errorf("expected TEST-42, got %s", issue.Identifier)
+	}
+}
+
+func TestLinearClientGetIssueByIDNotFound(t *testing.T) {
+	server := mockLinearServer(func(query string, vars map[string]any) (int, interface{}) {
+		return 200, map[string]interface{}{
+			"issue": nil,
+		}
+	})
+	defer server.Close()
+
+	_, err := testClient(server).GetIssueByID("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for missing issue, got nil")
+	}
+}
+
 func TestAuthHeader(t *testing.T) {
 	var authHeader string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

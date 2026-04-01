@@ -138,6 +138,7 @@ func (m *Model) showSelectedIssueDetail() (tea.Model, tea.Cmd) {
 
 	m.view = viewDetail
 	m.detailIssue = issue
+	m.detailHistory = nil
 	contentWidth := m.width - 6
 	m.detailViewport.Width = contentWidth
 	m.detailViewport.Height = m.height - 6
@@ -235,7 +236,13 @@ func (m *Model) openSelectedIssueLinks() (tea.Model, tea.Cmd) {
 		openBrowser(urls[0])
 		return m, nil
 	}
-	return m, m.showLinkPicker(urls)
+	items := make([]list.Item, len(urls))
+	for i, u := range urls {
+		items[i] = linkItem{label: truncateURL(u, 60), value: u}
+	}
+	m.linkReturnToView = viewList
+	m.showLinkList(items, "Open link")
+	return m, nil
 }
 
 func (m *Model) updateListCursor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

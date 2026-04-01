@@ -25,8 +25,8 @@ func (m Model) View() string {
 		base = m.viewPicker("Select Project", m.projectForm)
 	case viewStatePicker:
 		base = m.viewPicker("Transition State", m.stateForm)
-	case viewLinkPicker:
-		base = m.viewPicker("Open Link", m.linkPickerForm)
+	case viewLinkList:
+		base = m.viewLinkList()
 	case viewFilterPicker:
 		base = m.viewPicker("Filter Issues", m.filterForm)
 	case viewSearch:
@@ -145,8 +145,13 @@ func (m Model) viewDetail() string {
 
 	header := titleStyle.Render(fmt.Sprintf("Issue: %s", identifier))
 
+	backLabel := "d/esc:back"
+	if len(m.detailHistory) > 0 {
+		backLabel = "d/esc:prev issue"
+	}
+
 	status := statusBarStyle.Render(
-		"d/esc:back  j/k:scroll  m:comment  t:transition  g:open  q:quit",
+		backLabel + "  j/k:scroll  l:links  m:comment  t:transition  g:open  q:quit",
 	)
 
 	if m.loading && m.detailIssue != nil && m.cachedCommentID != m.detailIssue.ID {
@@ -162,7 +167,7 @@ func (m Model) viewDetail() string {
 	body := m.detailViewport.View()
 	scrollPct := fmt.Sprintf("%3.f%%", m.detailViewport.ScrollPercent()*100)
 	status = statusBarStyle.Render(
-		fmt.Sprintf("%s | d/esc:back  j/k:scroll  m:comment  t:transition  g:open  q:quit", scrollPct),
+		fmt.Sprintf("%s | %s  j/k:scroll  l:links  m:comment  t:transition  g:open  q:quit", scrollPct, backLabel),
 	)
 
 	return appStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, body, status))
@@ -198,6 +203,11 @@ func (m Model) renderSlotBar() string {
 		)
 	}
 	return lipgloss.NewStyle().Padding(0, 1).Render(strings.Join(parts, "  "))
+}
+
+func (m Model) viewLinkList() string {
+	status := statusBarStyle.Render("[Enter] open  [Esc] back")
+	return appStyle.Render(lipgloss.JoinVertical(lipgloss.Left, m.linkList.View(), status))
 }
 
 func (m Model) viewLaunch() string {

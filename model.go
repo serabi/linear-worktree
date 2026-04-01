@@ -63,6 +63,16 @@ func NewModel(cfg Config) Model {
 	ll.SetFilteringEnabled(false)
 	ll.Styles.Title = titleStyle
 
+	linkDelegate := list.NewDefaultDelegate()
+	linkDelegate.ShowDescription = false
+	linkDelegate.SetHeight(1)
+	linkDelegate.SetSpacing(0)
+	lnk := list.New([]list.Item{}, linkDelegate, 0, 0)
+	lnk.SetShowHelp(false)
+	lnk.SetShowStatusBar(false)
+	lnk.SetFilteringEnabled(false)
+	lnk.Styles.Title = titleStyle
+
 	ta := textarea.New()
 	ta.Placeholder = "Enter your prompt for Claude..."
 	ta.CharLimit = 10000
@@ -83,6 +93,7 @@ func NewModel(cfg Config) Model {
 		spinner:          sp,
 		detailViewport:   vp,
 		launchList:       ll,
+		linkList:         lnk,
 		promptArea:       ta,
 	}
 	if cfg.NeedsSetup() {
