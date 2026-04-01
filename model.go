@@ -830,11 +830,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.issues = msg.issues
 		m.rebuildList()
 		m.updateListTitle()
-		if len(msg.issues) == 0 && m.filter == FilterAssigned {
-			m.statusMsg = fmt.Sprintf("No issues assigned to you in %s. Press tab or f to see all issues.", m.cfg.TeamKey)
-		} else {
-			m.statusMsg = m.buildStatusLine()
-		}
+		m.statusMsg = m.buildStatusLine()
 		return m, nil
 
 	case worktreesLoadedMsg:
@@ -1686,11 +1682,31 @@ func (m Model) viewList() string {
 	slotBar := m.renderSlotBar()
 	teamBar := m.renderTeamTabBar()
 	content := m.list.View()
+
+	// Show loading indicator or empty state hint above the list
+	listHint := ""
+	if m.loading {
+		listHint = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#7C3AED")).
+			Padding(1, 2).
+			Render(m.spinner.View() + " Loading issues...")
+	} else if len(m.issues) == 0 && m.filter == FilterAssigned {
+		listHint = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#EAB308")).
+			Padding(1, 2).
+			Render(fmt.Sprintf("No issues assigned to you in %s. Press tab or f to see all issues.", m.cfg.TeamKey))
+	} else if len(m.issues) == 0 {
+		listHint = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#888")).
+			Padding(1, 2).
+			Render("No issues found.")
+	}
+
 	status := statusBarStyle.Render(m.statusMsg)
 	hint := statusBarStyle.Render("? help")
 
 	base := appStyle.Render(
-		lipgloss.JoinVertical(lipgloss.Left, slotBar, teamBar, content, status, hint),
+		lipgloss.JoinVertical(lipgloss.Left, slotBar, teamBar, listHint, content, status, hint),
 	)
 
 	if m.showHelp {
