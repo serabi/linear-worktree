@@ -1556,12 +1556,10 @@ func (m *Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// If the single-group form completed (Enter on last field), save settings
 	active := m.activeSettingsForm()
 	if active.State == huh.StateCompleted {
-		debugLog.Printf("settings form completed on tab %d, settingsTeamKey=%q", m.settingsActiveTab, m.settingsDraft.teamKey)
-		// The completing form's Blur has already run (huh calls it in nextField).
-		// But also flush other tabs that might have unflushed edits.
-		for i, tab := range m.settingsTabs {
-			if tab != nil {
-				debugLog.Printf("  tab %d state=%d", i, tab.State)
+		// Flush all tabs' focused fields before saving
+		for _, tab := range m.settingsTabs {
+			if tab != nil && tab.State == huh.StateNormal {
+				tab.GetFocusedField().Blur()
 			}
 		}
 		return m.handleSettingsCompleted()
