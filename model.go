@@ -912,6 +912,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if updated, ok := form.(*huh.Form); ok {
 			m.settingsTabs[m.settingsActiveTab] = updated
 		}
+		active := m.activeSettingsForm()
+		if active.State == huh.StateCompleted || active.State == huh.StateAborted {
+			m.rebuildActiveTab()
+		}
 		return m, cmd
 	}
 	if m.view == viewProjectPicker && m.projectForm != nil {
@@ -1331,6 +1335,13 @@ func (m *Model) updateSetup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if updated, ok := form.(*huh.Form); ok {
 		m.settingsTabs[m.settingsActiveTab] = updated
 	}
+
+	// If the single-group form completed or aborted, rebuild it so fields stay editable
+	active := m.activeSettingsForm()
+	if active.State == huh.StateCompleted || active.State == huh.StateAborted {
+		m.rebuildActiveTab()
+	}
+
 	return m, cmd
 }
 
@@ -1751,88 +1762,96 @@ func (m *Model) initSettingsForm() {
 	}
 
 	m.settingsTabNames = [3]string{"Credentials", "Worktree", "Launch"}
-
-	m.settingsTabs[0] = huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title("Linear API Key").
-				Description("Personal API key from Linear Settings > API. Stored securely in your OS keychain, never written to the config file.").
-				Placeholder("lin_api_...").
-				EchoMode(huh.EchoModePassword).
-				Value(&m.settingsAPIKey),
-			huh.NewInput().
-				Title("Team Key").
-				Description("The short prefix for your team's issues (e.g. TSCODE). Find it in the URL: linear.app/TEAMKEY/...").
-				Placeholder("MYTEAM").
-				Value(&m.settingsTeamKey),
-		),
-	).WithWidth(w).WithShowHelp(false).WithShowErrors(true)
-
-	m.settingsTabs[1] = huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title("Worktree Base Directory").
-				Description("Where new git worktrees are created, relative to the repo root. Each issue gets a subdirectory here.").
-				Placeholder("../worktrees").
-				Value(&m.settingsWtBase),
-			huh.NewInput().
-				Title("Files to Copy").
-				Description("Comma-separated list of files copied from the main repo into each new worktree (e.g. env files, configs).").
-				Placeholder(".env, .envrc").
-				Value(&m.settingsCopyFiles),
-			huh.NewInput().
-				Title("Directories to Copy").
-				Description("Comma-separated list of directories copied into each new worktree (e.g. .claude for Claude Code settings).").
-				Placeholder(".claude").
-				Value(&m.settingsCopyDirs),
-			huh.NewInput().
-				Title("Branch Prefix").
-				Description("Prefix added to git branch names when creating worktrees. Issue TSCODE-123 becomes feature/tscode-123.").
-				Placeholder("feature/").
-				Value(&m.settingsBranch),
-		),
-	).WithWidth(w).WithShowHelp(false).WithShowErrors(true)
-
-	m.settingsTabs[2] = huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title("Claude Command").
-				Description("The command used to launch Claude Code. Change this if claude is installed at a custom path.").
-				Placeholder("claude").
-				Value(&m.settingsClaudeCmd).
-				Validate(func(s string) error {
-					s = strings.TrimSpace(s)
-					if s == "" {
-						return nil
-					}
-					return validateClaudeCommand(s)
-				}),
-			huh.NewInput().
-				Title("Claude Args").
-				Description("Extra flags appended to every Claude launch (e.g. --model sonnet, --verbose, --allowedTools).").
-				Value(&m.settingsClaudeArgs),
-			huh.NewInput().
-				Title("Post-Create Hook").
-				Description("Shell command that runs inside the worktree directory after creation. Use for setup tasks like installing dependencies.").
-				Placeholder("npm install && direnv allow").
-				Value(&m.settingsHook),
-			huh.NewText().
-				Title("Prompt Template").
-				Description("Custom prompt sent to Claude on launch. Supports Go template variables: {{.Identifier}}, {{.Title}}, {{.Description}}. Leave empty for the default prompt.").
-				Value(&m.settingsPrompt),
-			huh.NewSelect[int]().
-				Title("Max Slots").
-				Description("Maximum number of concurrent Claude sessions in the E-layout. Only applies when running inside cmux.").
-				Options(
-					huh.NewOption("2 slots", 2),
-					huh.NewOption("3 slots", 3),
-					huh.NewOption("4 slots", 4),
-				).
-				Value(&m.settingsMaxSlots),
-		),
-	).WithWidth(w).WithShowHelp(false).WithShowErrors(true)
+	for i := range m.settingsTabs {
+		m.settingsTabs[i] = m.buildTab(i, w)
+	}
 
 	m.view = viewSetup
+}
+
+func (m *Model) buildTab(index, w int) *huh.Form {
+	switch index {
+	case 0:
+		return huh.NewForm(
+			huh.NewGroup(
+				huh.NewInput().
+					Title("Linear API Key").
+					Description("Personal API key from Linear Settings > API. Stored securely in your OS keychain, never written to the config file.").
+					Placeholder("lin_api_...").
+					EchoMode(huh.EchoModePassword).
+					Value(&m.settingsAPIKey),
+				huh.NewInput().
+					Title("Team Key").
+					Description("The short prefix for your team's issues (e.g. TSCODE). Find it in the URL: linear.app/TEAMKEY/...").
+					Placeholder("MYTEAM").
+					Value(&m.settingsTeamKey),
+			),
+		).WithWidth(w).WithShowHelp(false).WithShowErrors(true)
+	case 1:
+		return huh.NewForm(
+			huh.NewGroup(
+				huh.NewInput().
+					Title("Worktree Base Directory").
+					Description("Where new git worktrees are created, relative to the repo root. Each issue gets a subdirectory here.").
+					Placeholder("../worktrees").
+					Value(&m.settingsWtBase),
+				huh.NewInput().
+					Title("Files to Copy").
+					Description("Comma-separated list of files copied from the main repo into each new worktree (e.g. env files, configs).").
+					Placeholder(".env, .envrc").
+					Value(&m.settingsCopyFiles),
+				huh.NewInput().
+					Title("Directories to Copy").
+					Description("Comma-separated list of directories copied into each new worktree (e.g. .claude for Claude Code settings).").
+					Placeholder(".claude").
+					Value(&m.settingsCopyDirs),
+				huh.NewInput().
+					Title("Branch Prefix").
+					Description("Prefix added to git branch names when creating worktrees. Issue TSCODE-123 becomes feature/tscode-123.").
+					Placeholder("feature/").
+					Value(&m.settingsBranch),
+			),
+		).WithWidth(w).WithShowHelp(false).WithShowErrors(true)
+	default:
+		return huh.NewForm(
+			huh.NewGroup(
+				huh.NewInput().
+					Title("Claude Command").
+					Description("The command used to launch Claude Code. Change this if claude is installed at a custom path.").
+					Placeholder("claude").
+					Value(&m.settingsClaudeCmd).
+					Validate(func(s string) error {
+						s = strings.TrimSpace(s)
+						if s == "" {
+							return nil
+						}
+						return validateClaudeCommand(s)
+					}),
+				huh.NewInput().
+					Title("Claude Args").
+					Description("Extra flags appended to every Claude launch (e.g. --model sonnet, --verbose, --allowedTools).").
+					Value(&m.settingsClaudeArgs),
+				huh.NewInput().
+					Title("Post-Create Hook").
+					Description("Shell command that runs inside the worktree directory after creation. Use for setup tasks like installing dependencies.").
+					Placeholder("npm install && direnv allow").
+					Value(&m.settingsHook),
+				huh.NewText().
+					Title("Prompt Template").
+					Description("Custom prompt sent to Claude on launch. Supports Go template variables: {{.Identifier}}, {{.Title}}, {{.Description}}. Leave empty for the default prompt.").
+					Value(&m.settingsPrompt),
+				huh.NewSelect[int]().
+					Title("Max Slots").
+					Description("Maximum number of concurrent Claude sessions in the E-layout. Only applies when running inside cmux.").
+					Options(
+						huh.NewOption("2 slots", 2),
+						huh.NewOption("3 slots", 3),
+						huh.NewOption("4 slots", 4),
+					).
+					Value(&m.settingsMaxSlots),
+			),
+		).WithWidth(w).WithShowHelp(false).WithShowErrors(true)
+	}
 }
 
 func (m *Model) buildSettingsForm() tea.Cmd {
@@ -1842,6 +1861,15 @@ func (m *Model) buildSettingsForm() tea.Cmd {
 		cmds[i] = m.settingsTabs[i].Init()
 	}
 	return tea.Batch(cmds...)
+}
+
+func (m *Model) rebuildActiveTab() {
+	w := m.width - 4
+	if w < 60 {
+		w = 60
+	}
+	m.settingsTabs[m.settingsActiveTab] = m.buildTab(m.settingsActiveTab, w)
+	m.settingsTabs[m.settingsActiveTab].Init()
 }
 
 func (m Model) renderSettingsTabBar() string {
