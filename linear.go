@@ -4,11 +4,22 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
+	"os"
 	"time"
 )
 
 const linearAPIURL = "https://api.linear.app/graphql"
+
+var debugLog = log.New(io.Discard, "[linear] ", log.LstdFlags)
+
+func init() {
+	if os.Getenv("LWT_DEBUG") != "" {
+		debugLog.SetOutput(os.Stderr)
+	}
+}
 
 type LinearClient struct {
 	apiKey string
@@ -63,6 +74,8 @@ func (lc *LinearClient) queryWithVars(q string, vars map[string]any, result inte
 		return fmt.Errorf("marshal query: %w", err)
 	}
 
+	debugLog.Printf("request: %s", payload)
+
 	req, err := http.NewRequest("POST", linearAPIURL, bytes.NewReader(payload))
 	if err != nil {
 		return err
@@ -72,12 +85,20 @@ func (lc *LinearClient) queryWithVars(q string, vars map[string]any, result inte
 
 	resp, err := lc.client.Do(req)
 	if err != nil {
+		debugLog.Printf("HTTP error: %v", err)
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read response: %w", err)
+	}
+
+	debugLog.Printf("response [%d]: %s", resp.StatusCode, body)
+
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("linear API returned %d", resp.StatusCode)
+		return fmt.Errorf("linear API returned %d: %s", resp.StatusCode, body)
 	}
 
 	var gqlResp struct {
@@ -87,7 +108,7 @@ func (lc *LinearClient) queryWithVars(q string, vars map[string]any, result inte
 		} `json:"errors"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&gqlResp); err != nil {
+	if err := json.Unmarshal(body, &gqlResp); err != nil {
 		return err
 	}
 
@@ -116,9 +137,33 @@ func (lc *LinearClient) GetTeams() ([]Team, error) {
 	return result.Teams.Nodes, err
 }
 
+func (lc *LinearClient) GetTeamByKey(key string) (*Team, error) {
+	var result struct {
+		Teams struct {
+			Nodes []Team `json:"nodes"`
+		} `json:"teams"`
+	}
+
+	err := lc.queryWithVars(`
+		query($key: String!) {
+			teams(filter: { key: { eqIgnoreCase: $key } }) {
+				nodes { id name key }
+			}
+		}
+	`, map[string]any{"key": key}, &result)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(result.Teams.Nodes) == 0 {
+		return nil, fmt.Errorf("team with key %q not found", key)
+	}
+	return &result.Teams.Nodes[0], nil
+}
+
 var issueQueryByFilter = map[FilterMode]string{
 	FilterAssigned: `
-		query($teamID: String!) {
+		query($teamID: ID!) {
 			issues(
 				filter: { and: [
 					{ team: { id: { eq: $teamID } } },
@@ -137,7 +182,7 @@ var issueQueryByFilter = map[FilterMode]string{
 			}
 		}`,
 	FilterAll: `
-		query($teamID: String!) {
+		query($teamID: ID!) {
 			issues(
 				filter: { and: [
 					{ team: { id: { eq: $teamID } } },
@@ -155,7 +200,7 @@ var issueQueryByFilter = map[FilterMode]string{
 			}
 		}`,
 	FilterTodo: `
-		query($teamID: String!) {
+		query($teamID: ID!) {
 			issues(
 				filter: { and: [
 					{ team: { id: { eq: $teamID } } },
@@ -173,7 +218,7 @@ var issueQueryByFilter = map[FilterMode]string{
 			}
 		}`,
 	FilterInProgress: `
-		query($teamID: String!) {
+		query($teamID: ID!) {
 			issues(
 				filter: { and: [
 					{ team: { id: { eq: $teamID } } },
@@ -207,7 +252,7 @@ func (lc *LinearClient) GetIssues(teamID string, filter FilterMode) ([]Issue, er
 
 func (lc *LinearClient) AddComment(issueID, body string) error {
 	q := `
-		mutation($issueId: String!, $body: String!) {
+		mutation($issueId: ID!, $body: String!) {
 			commentCreate(input: {
 				issueId: $issueId
 				body: $body
@@ -233,7 +278,7 @@ func (lc *LinearClient) AddComment(issueID, body string) error {
 
 func (lc *LinearClient) UpdateIssueState(issueID, stateID string) error {
 	q := `
-		mutation($id: String!, $stateId: String!) {
+		mutation($id: ID!, $stateId: ID!) {
 			issueUpdate(id: $id, input: { stateId: $stateId }) {
 				success
 			}
@@ -256,7 +301,7 @@ func (lc *LinearClient) UpdateIssueState(issueID, stateID string) error {
 
 func (lc *LinearClient) GetComments(issueID string) ([]Comment, error) {
 	q := `
-		query($id: String!) {
+		query($id: ID!) {
 			issue(id: $id) {
 				comments(first: 20, orderBy: createdAt) {
 					nodes {
@@ -285,7 +330,7 @@ func (lc *LinearClient) GetComments(issueID string) ([]Comment, error) {
 
 func (lc *LinearClient) GetWorkflowStates(teamID string) ([]WorkflowState, error) {
 	q := `
-		query($teamID: String!) {
+		query($teamID: ID!) {
 			workflowStates(filter: { team: { id: { eq: $teamID } } }) {
 				nodes { id name type }
 			}

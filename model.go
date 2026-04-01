@@ -447,32 +447,19 @@ func (m Model) fetchCommentsCmd(issueID string) tea.Cmd {
 func (m Model) resolveTeamCmd(apiKey, teamKey string) tea.Cmd {
 	return func() tea.Msg {
 		client := NewLinearClient(apiKey)
-		teams, err := client.GetTeams()
+		team, err := client.GetTeamByKey(teamKey)
 		if err != nil {
 			return teamsLoadedMsg{err: err}
 		}
 
-		for _, t := range teams {
-			if strings.EqualFold(t.Key, teamKey) {
-				cfg := m.cfg
-				cfg.LinearAPIKey = apiKey
-				cfg.TeamID = t.ID
-				cfg.TeamKey = t.Key
-				if err := SaveConfig(cfg); err != nil {
-					return teamsLoadedMsg{err: err}
-				}
-				return setupCompleteMsg{cfg: cfg}
-			}
+		cfg := m.cfg
+		cfg.LinearAPIKey = apiKey
+		cfg.TeamID = team.ID
+		cfg.TeamKey = team.Key
+		if err := SaveConfig(cfg); err != nil {
+			return teamsLoadedMsg{err: err}
 		}
-
-		available := make([]string, len(teams))
-		for i, t := range teams {
-			available[i] = t.Key
-		}
-		return teamsLoadedMsg{
-			err: fmt.Errorf("team '%s' not found. Available: %s",
-				teamKey, strings.Join(available, ", ")),
-		}
+		return setupCompleteMsg{cfg: cfg}
 	}
 }
 
@@ -788,6 +775,9 @@ func (m *Model) updateComment(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) updateSetup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+
 	case "esc":
 		if !m.cfg.NeedsSetup() {
 			m.view = viewList
