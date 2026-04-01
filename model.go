@@ -102,9 +102,10 @@ func (i issueItem) FilterValue() string {
 
 // launchOption represents a menu item in the launch picker.
 type launchOption struct {
-	action string
-	title  string
-	desc   string
+	action    string
+	title     string
+	desc      string
+	slotIndex int
 }
 
 func (l launchOption) Title() string       { return l.title }
@@ -683,8 +684,8 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		// Build menu options dynamically
 		items := []list.Item{
-			launchOption{"prompt", "Launch with prompt", "Edit prompt before launching Claude"},
-			launchOption{"blank", "Launch blank session", "Open Claude with no initial message"},
+			launchOption{"prompt", "Launch with prompt", "Edit prompt before launching Claude", -1},
+			launchOption{"blank", "Launch blank session", "Open Claude with no initial message", -1},
 		}
 
 		// Check for active slot
@@ -692,7 +693,7 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			for _, slot := range m.paneManager.Slots() {
 				if slot != nil && slot.Issue.Identifier == issue.Identifier {
 					items = append([]list.Item{
-						launchOption{"resume", "Resume existing session", fmt.Sprintf("Focus slot %d (%s)", slot.Index+1, slot.Status.Label())},
+						launchOption{"resume", "Resume existing session", fmt.Sprintf("Focus slot %d (%s)", slot.Index+1, slot.Status.Label()), slot.Index},
 					}, items...)
 					break
 				}
@@ -712,7 +713,7 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if hasWorktree && !hasSlot {
-			items = append(items, launchOption{"existing", "Open in existing worktree", "Launch Claude in the existing worktree"})
+			items = append(items, launchOption{"existing", "Open in existing worktree", "Launch Claude in the existing worktree", -1})
 		}
 
 		m.launchList.Title = fmt.Sprintf("Launch Claude for %s", issue.Identifier)
@@ -906,7 +907,15 @@ func (m *Model) updateLaunch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "resume":
 			m.view = viewList
 			m.launchIssue = nil
-			m.statusMsg = "Focused existing session"
+			if m.paneManager == nil || opt.slotIndex < 0 {
+				m.statusMsg = "Unable to focus existing session"
+				return m, nil
+			}
+			if err := m.paneManager.FocusSlot(opt.slotIndex); err != nil {
+				m.statusMsg = fmt.Sprintf("Error focusing slot %d: %v", opt.slotIndex+1, err)
+				return m, nil
+			}
+			m.statusMsg = fmt.Sprintf("Focused existing session (slot %d)", opt.slotIndex+1)
 			return m, nil
 		case "existing":
 			m.view = viewList

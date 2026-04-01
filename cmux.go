@@ -204,6 +204,14 @@ func (c *CmuxClient) ReadText(workspaceID, surfaceID string, lines int) (string,
 	return "", nil
 }
 
+func (c *CmuxClient) FocusSurface(workspaceID, surfaceID string) error {
+	_, err := c.send("surface.focus", map[string]any{
+		"workspace_id": workspaceID,
+		"surface_id":   surfaceID,
+	})
+	return err
+}
+
 // --- PaneManager ---
 
 func NewPaneManager(client *CmuxClient, maxSlots int) *PaneManager {
@@ -419,6 +427,19 @@ func (pm *PaneManager) CloseSlot(slotIdx int) error {
 	err := pm.client.CloseSurface(pm.workspaceID, slot.SurfaceID)
 	pm.slots[slotIdx] = nil
 	return err
+}
+
+// FocusSlot focuses an existing worktree slot pane.
+func (pm *PaneManager) FocusSlot(slotIdx int) error {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	if slotIdx < 0 || slotIdx >= pm.maxSlots || pm.slots[slotIdx] == nil {
+		return fmt.Errorf("slot %d is empty", slotIdx)
+	}
+
+	slot := pm.slots[slotIdx]
+	return pm.client.FocusSurface(pm.workspaceID, slot.SurfaceID)
 }
 
 // Slots returns a copy of current slot state.
