@@ -191,6 +191,7 @@ func TestSettingsCompletionRequiresCredentials(t *testing.T) {
 }
 
 func TestSettingsCompletionWithCredentials(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	cfg := Config{
 		LinearAPIKey:  "lin_api_old",
 		TeamID:        "team-1",
@@ -248,6 +249,7 @@ func TestSettingsTeamKeyChangeTriggersResolve(t *testing.T) {
 }
 
 func TestSettingsDefaultsApplied(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	cfg := Config{
 		LinearAPIKey:  "lin_api_test",
 		TeamID:        "team-1",

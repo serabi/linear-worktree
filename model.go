@@ -1315,6 +1315,15 @@ func (m *Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
+	case "1":
+		m.settingsActiveTab = 0
+		return m, nil
+	case "2":
+		m.settingsActiveTab = 1
+		return m, nil
+	case "3":
+		m.settingsActiveTab = 2
+		return m, nil
 	case "ctrl+s":
 		return m.handleSettingsCompleted()
 	case "esc":
@@ -1728,7 +1737,7 @@ func (m Model) viewSettings() string {
 	header := titleStyle.Render("Settings")
 	tabBar := m.renderSettingsTabBar()
 	body := m.activeSettingsForm().View()
-	help := statusBarStyle.Render("Enter/Tab: next field  Shift+Tab: prev field  Ctrl+S: save  Esc: cancel")
+	help := statusBarStyle.Render("1/2/3: switch tab  Enter/Tab: next field  Shift+Tab: prev field  Ctrl+S: save  Esc: cancel")
 	return appStyle.Render(
 		lipgloss.JoinVertical(lipgloss.Left, header, tabBar, "", body, "", help),
 	)
@@ -1890,10 +1899,11 @@ func (m *Model) rebuildActiveTab() {
 func (m Model) renderSettingsTabBar() string {
 	var tabs []string
 	for i, name := range m.settingsTabNames {
+		label := fmt.Sprintf("[%d] %s", i+1, name)
 		if i == m.settingsActiveTab {
-			tabs = append(tabs, activeTabStyle.Render(name))
+			tabs = append(tabs, activeTabStyle.Render(label))
 		} else {
-			tabs = append(tabs, inactiveTabStyle.Render(name))
+			tabs = append(tabs, inactiveTabStyle.Render(label))
 		}
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
