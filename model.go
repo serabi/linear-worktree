@@ -2260,8 +2260,12 @@ func (m Model) renderSettingsTabBar() string {
 }
 
 func (m *Model) handleSettingsCompleted() (tea.Model, tea.Cmd) {
+	debugLog.Printf("handleSettingsCompleted: settingsAPIKey=%q settingsTeamKey=%q", m.settingsAPIKey, m.settingsTeamKey)
+
 	apiKey := strings.TrimSpace(m.settingsAPIKey)
 	teamKeys := splitComma(m.settingsTeamKey)
+
+	debugLog.Printf("handleSettingsCompleted: parsed teamKeys=%v", teamKeys)
 
 	if apiKey == "" || len(teamKeys) == 0 {
 		m.statusMsg = "API key and at least one team key are required"
