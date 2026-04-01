@@ -414,7 +414,10 @@ func NewModel(cfg Config) Model {
 	delegate.SetSpacing(0)
 
 	l := list.New([]list.Item{}, delegate, 0, 0)
-	l.Title = "linear-worktree"
+	l.Title = cfg.TeamKey
+	if l.Title == "" {
+		l.Title = "linear-worktree"
+	}
 	l.SetShowHelp(false)
 	l.SetShowStatusBar(false)
 	l.SetFilteringEnabled(true)
@@ -1766,9 +1769,18 @@ func (m *Model) handleProjectSelected() (tea.Model, tea.Cmd) {
 		}
 	}
 
+	m.updateListTitle()
 	m.loading = true
 	m.statusMsg = m.spinner.View() + " Loading..."
 	return m, tea.Batch(m.fetchIssues(), m.spinner.Tick)
+}
+
+func (m *Model) updateListTitle() {
+	if m.projectName != "" {
+		m.list.Title = fmt.Sprintf("%s > %s", m.cfg.TeamKey, m.projectName)
+	} else {
+		m.list.Title = m.cfg.TeamKey
+	}
 }
 
 func (m *Model) handleStateSelected() (tea.Model, tea.Cmd) {
