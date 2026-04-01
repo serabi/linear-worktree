@@ -1721,7 +1721,7 @@ func (m *Model) initSettingsForm() {
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Linear API Key").
-				Description("Stored in OS keychain, not config file").
+				Description("Personal API key from Linear Settings > API. Stored securely in your OS keychain, never written to the config file.").
 				Placeholder("lin_api_...").
 				EchoMode(huh.EchoModePassword).
 				Value(&m.settingsAPIKey).
@@ -1733,7 +1733,7 @@ func (m *Model) initSettingsForm() {
 				}),
 			huh.NewInput().
 				Title("Team Key").
-				Description("Your Linear team prefix (e.g. TSCODE)").
+				Description("The short prefix for your team's issues (e.g. TSCODE). Find it in the URL: linear.app/TEAMKEY/...").
 				Placeholder("MYTEAM").
 				Value(&m.settingsTeamKey).
 				Validate(func(s string) error {
@@ -1742,33 +1742,35 @@ func (m *Model) initSettingsForm() {
 					}
 					return nil
 				}),
-		).Title("Credentials"),
+		).Title("Credentials").Description("Connect to your Linear workspace"),
 
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Worktree Base Directory").
+				Description("Where new git worktrees are created, relative to the repo root. Each issue gets a subdirectory here.").
 				Placeholder("../worktrees").
 				Value(&m.settingsWtBase),
 			huh.NewInput().
 				Title("Files to Copy").
-				Description("Comma-separated files copied into new worktrees").
+				Description("Comma-separated list of files copied from the main repo into each new worktree (e.g. env files, configs).").
 				Placeholder(".env, .envrc").
 				Value(&m.settingsCopyFiles),
 			huh.NewInput().
 				Title("Directories to Copy").
-				Description("Comma-separated dirs copied into new worktrees").
+				Description("Comma-separated list of directories copied into each new worktree (e.g. .claude for Claude Code settings).").
 				Placeholder(".claude").
 				Value(&m.settingsCopyDirs),
 			huh.NewInput().
 				Title("Branch Prefix").
+				Description("Prefix added to git branch names when creating worktrees. Issue TSCODE-123 becomes feature/tscode-123.").
 				Placeholder("feature/").
 				Value(&m.settingsBranch),
-		).Title("Worktree"),
+		).Title("Worktree").Description("Configure how git worktrees are created"),
 
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Claude Command").
-				Description("Must match: [a-zA-Z0-9_./-]+").
+				Description("The command used to launch Claude Code. Change this if claude is installed at a custom path.").
 				Placeholder("claude").
 				Value(&m.settingsClaudeCmd).
 				Validate(func(s string) error {
@@ -1780,27 +1782,27 @@ func (m *Model) initSettingsForm() {
 				}),
 			huh.NewInput().
 				Title("Claude Args").
-				Description("Extra flags passed to claude (e.g. --model sonnet)").
+				Description("Extra flags appended to every Claude launch (e.g. --model sonnet, --verbose, --allowedTools).").
 				Value(&m.settingsClaudeArgs),
 			huh.NewInput().
 				Title("Post-Create Hook").
-				Description("Shell command run in worktree after creation").
+				Description("Shell command that runs inside the worktree directory after creation. Use for setup tasks like installing dependencies.").
 				Placeholder("npm install && direnv allow").
 				Value(&m.settingsHook),
 			huh.NewText().
 				Title("Prompt Template").
-				Description("Use {{.Identifier}}, {{.Title}}, {{.Description}}").
+				Description("Custom prompt sent to Claude on launch. Supports Go template variables: {{.Identifier}}, {{.Title}}, {{.Description}}. Leave empty for the default prompt.").
 				Value(&m.settingsPrompt),
 			huh.NewSelect[int]().
 				Title("Max Slots").
-				Description("Concurrent agent sessions (cmux only)").
+				Description("Maximum number of concurrent Claude sessions in the E-layout. Only applies when running inside cmux.").
 				Options(
 					huh.NewOption("2 slots", 2),
 					huh.NewOption("3 slots", 3),
 					huh.NewOption("4 slots", 4),
 				).
 				Value(&m.settingsMaxSlots),
-		).Title("Launch"),
+		).Title("Launch").Description("Configure how Claude sessions are launched"),
 	).WithWidth(w).WithShowHelp(true).WithShowErrors(true)
 
 	m.view = viewSetup
