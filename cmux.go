@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -102,7 +104,11 @@ type PaneManager struct {
 func NewCmuxClient() *CmuxClient {
 	path := os.Getenv("CMUX_SOCKET_PATH")
 	if path == "" {
-		path = defaultSocketPath
+		if xdg := os.Getenv("XDG_RUNTIME_DIR"); xdg != "" {
+			path = filepath.Join(xdg, "cmux.sock")
+		} else {
+			path = defaultSocketPath
+		}
 	}
 	return &CmuxClient{socketPath: path}
 }
@@ -251,14 +257,17 @@ func (pm *PaneManager) OpenSlot(issue Issue, wtPath string, cfg Config) (*Worktr
 		prompt += fmt.Sprintf("\n\nDescription:\n%s", desc)
 	}
 
-	// Send cd + claude command to the new pane
-	cdCmd := fmt.Sprintf("cd %s\n", wtPath)
+	// Send cd + claude command to the new pane.
+	// If either SendText fails, close the surface to avoid orphaned panes.
+	cdCmd := fmt.Sprintf("cd %s\n", shellQuote(wtPath))
 	if err := pm.client.SendText(pm.workspaceID, surfaceID, cdCmd); err != nil {
+		pm.client.CloseSurface(pm.workspaceID, surfaceID)
 		return nil, fmt.Errorf("send cd: %w", err)
 	}
 
-	claudeCmd := fmt.Sprintf("%s --prompt '%s'\n", cfg.ClaudeCommand, escapeShell(prompt))
+	claudeCmd := fmt.Sprintf("%s --prompt %s\n", cfg.ClaudeCommand, shellQuote(prompt))
 	if err := pm.client.SendText(pm.workspaceID, surfaceID, claudeCmd); err != nil {
+		pm.client.CloseSurface(pm.workspaceID, surfaceID)
 		return nil, fmt.Errorf("send claude: %w", err)
 	}
 
@@ -392,7 +401,7 @@ func inferStatus(terminalText string) AgentStatus {
 	if containsAny(terminalText, "to interrupt", "ctrl+c") {
 		return AgentRunning
 	}
-	if containsAny(terminalText, "❯", ">") {
+	if containsAny(terminalText, "❯", "\n> ") || strings.TrimSpace(terminalText) == ">" {
 		return AgentIdle
 	}
 	return AgentRunning // default to running if we can't tell
@@ -420,15 +429,29 @@ func searchString(s, substr string) bool {
 	return false
 }
 
-func escapeShell(s string) string {
-	// Simple shell escaping — replace single quotes
-	result := ""
+func shellQuote(s string) string {
+	// Wrap in single quotes and escape embedded single quotes.
+	// Strip control characters (newlines, tabs) that could break quoting context
+	// in terminal-based SendText calls.
+	var result []byte
+	result = append(result, '\'')
 	for _, c := range s {
-		if c == '\'' {
-			result += "'\\''";
-		} else {
-			result += string(c)
+		switch {
+		case c == '\'':
+			result = append(result, '\'', '\\', '\'', '\'')
+		case c == '\n' || c == '\r':
+			result = append(result, ' ')
+		default:
+			result = append(result, string(c)...)
 		}
 	}
-	return result
+	result = append(result, '\'')
+	return string(result)
+}
+
+// escapeShell is kept for backward compat in tests; prefer shellQuote for new code.
+func escapeShell(s string) string {
+	inner := shellQuote(s)
+	// Strip the outer quotes to match the old API (caller wraps in quotes)
+	return inner[1 : len(inner)-1]
 }

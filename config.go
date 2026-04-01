@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 )
 
 type Config struct {
@@ -70,14 +72,22 @@ func LoadConfig() (Config, error) {
 		cfg.LinearAPIKey = os.Getenv("LINEAR_API_KEY")
 	}
 
+	if err := validateClaudeCommand(cfg.ClaudeCommand); err != nil {
+		return cfg, err
+	}
+
 	return cfg, nil
 }
 
 func SaveConfig(cfg Config) error {
+	if err := validateClaudeCommand(cfg.ClaudeCommand); err != nil {
+		return err
+	}
+
 	path := configPath()
 	dir := filepath.Dir(path)
 
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
 
@@ -87,6 +97,15 @@ func SaveConfig(cfg Config) error {
 	}
 
 	return os.WriteFile(path, data, 0600)
+}
+
+var validCommand = regexp.MustCompile(`^[a-zA-Z0-9_./-]+$`)
+
+func validateClaudeCommand(cmd string) error {
+	if !validCommand.MatchString(cmd) {
+		return fmt.Errorf("invalid claude_command %q: must contain only alphanumeric characters, dots, slashes, hyphens, and underscores", cmd)
+	}
+	return nil
 }
 
 func (c Config) NeedsSetup() bool {

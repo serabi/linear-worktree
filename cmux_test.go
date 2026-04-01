@@ -53,6 +53,26 @@ func TestInferStatus(t *testing.T) {
 			expected: AgentIdle,
 		},
 		{
+			name:     "idle at shell prompt with newline",
+			text:     "done\n> ",
+			expected: AgentIdle,
+		},
+		{
+			name:     "idle prompt bare >",
+			text:     "> ",
+			expected: AgentIdle,
+		},
+		{
+			name:     "bare > in output is not idle",
+			text:     "output > file.txt",
+			expected: AgentRunning,
+		},
+		{
+			name:     "quoted > in email is not idle",
+			text:     "> quoted email text",
+			expected: AgentRunning,
+		},
+		{
 			name:     "unknown defaults to running",
 			text:     "some random output",
 			expected: AgentRunning,
@@ -89,6 +109,30 @@ func TestEscapeShell(t *testing.T) {
 		result := escapeShell(tt.input)
 		if result != tt.expected {
 			t.Errorf("escapeShell(%q) = %q, want %q", tt.input, result, tt.expected)
+		}
+	}
+}
+
+func TestShellQuote(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"hello", "'hello'"},
+		{"it's a test", "'it'\\''s a test'"},
+		{"$(whoami)", "'$(whoami)'"},
+		{"`id`", "'`id`'"},
+		{"a; rm -rf /", "'a; rm -rf /'"},
+		{"foo\nbar", "'foo bar'"},
+		{"foo\rbar", "'foo bar'"},
+		{"a | b & c", "'a | b & c'"},
+		{"", "''"},
+	}
+
+	for _, tt := range tests {
+		result := shellQuote(tt.input)
+		if result != tt.expected {
+			t.Errorf("shellQuote(%q) = %q, want %q", tt.input, result, tt.expected)
 		}
 	}
 }

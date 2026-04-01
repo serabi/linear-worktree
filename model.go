@@ -1067,6 +1067,9 @@ func (m Model) viewSetup() string {
 }
 
 func openBrowser(url string) {
+	if !strings.HasPrefix(url, "https://") {
+		return
+	}
 	for _, cmd := range []string{"open", "xdg-open", "wslview"} {
 		if err := execCommand(cmd, url).Start(); err == nil {
 			return

@@ -37,8 +37,7 @@ func LaunchClaude(wtPath string, issue Issue, cfg Config) error {
 }
 
 func launchTmux(wtPath, sessionName, prompt string, cfg Config) error {
-	escaped := strings.ReplaceAll(prompt, "'", "'\\''")
-	shellCmd := fmt.Sprintf("%s --prompt '%s'", cfg.ClaudeCommand, escaped)
+	shellCmd := fmt.Sprintf("%s --prompt %s", cfg.ClaudeCommand, shellQuote(prompt))
 
 	cmd := exec.Command(
 		"tmux", "new-session",
@@ -51,8 +50,7 @@ func launchTmux(wtPath, sessionName, prompt string, cfg Config) error {
 }
 
 func launchCmux(cmuxPath, wtPath, sessionName, prompt string, cfg Config) error {
-	escaped := strings.ReplaceAll(prompt, "'", "'\\''")
-	shellCmd := fmt.Sprintf("%s --prompt '%s'", cfg.ClaudeCommand, escaped)
+	shellCmd := fmt.Sprintf("%s --prompt %s", cfg.ClaudeCommand, shellQuote(prompt))
 
 	cmd := exec.Command(
 		cmuxPath, "workspace", "create",

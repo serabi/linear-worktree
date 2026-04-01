@@ -137,7 +137,7 @@ func TestCopyFile(t *testing.T) {
 	src := filepath.Join(tmpDir, "source.txt")
 	dst := filepath.Join(tmpDir, "dest.txt")
 
-	os.WriteFile(src, []byte("hello world"), 0644)
+	os.WriteFile(src, []byte("hello world"), 0755)
 
 	err := copyFile(src, dst)
 	if err != nil {
@@ -150,6 +150,13 @@ func TestCopyFile(t *testing.T) {
 	}
 	if string(data) != "hello world" {
 		t.Errorf("copied content = %q, want 'hello world'", string(data))
+	}
+
+	// Verify permissions are preserved
+	srcInfo, _ := os.Stat(src)
+	dstInfo, _ := os.Stat(dst)
+	if srcInfo.Mode() != dstInfo.Mode() {
+		t.Errorf("copied file mode = %v, want %v", dstInfo.Mode(), srcInfo.Mode())
 	}
 }
 
@@ -175,6 +182,28 @@ func TestCopyDir(t *testing.T) {
 	data, err = os.ReadFile(filepath.Join(dstDir, "sub", "file2.txt"))
 	if err != nil || string(data) != "two" {
 		t.Errorf("sub/file2.txt not copied correctly")
+	}
+}
+
+func TestCreateWorktreePathTraversal(t *testing.T) {
+	repoDir := setupTestRepo(t)
+	worktreeBase := filepath.Join(t.TempDir(), "worktrees")
+
+	cfg := Config{
+		BranchPrefix: "feature/",
+		WorktreeBase: worktreeBase,
+	}
+
+	origDir, _ := os.Getwd()
+	os.Chdir(repoDir)
+	defer os.Chdir(origDir)
+
+	traversalInputs := []string{"../../etc", "../../../tmp/evil", "foo/../../bar"}
+	for _, id := range traversalInputs {
+		_, err := CreateWorktree(id, cfg)
+		if err == nil {
+			t.Errorf("CreateWorktree(%q) should fail with path traversal error", id)
+		}
 	}
 }
 

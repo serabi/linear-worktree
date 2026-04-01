@@ -100,3 +100,28 @@ func TestSaveAndLoadConfig(t *testing.T) {
 
 	_ = origConfigPath
 }
+
+func TestValidateClaudeCommand(t *testing.T) {
+	valid := []string{"claude", "/usr/local/bin/claude", "claude-code", "../bin/claude", "claude_dev"}
+	for _, cmd := range valid {
+		if err := validateClaudeCommand(cmd); err != nil {
+			t.Errorf("validateClaudeCommand(%q) should be valid, got: %v", cmd, err)
+		}
+	}
+
+	invalid := []string{
+		"claude; rm -rf /",
+		"$(whoami)",
+		"claude`id`",
+		"claude && echo pwned",
+		"claude | cat",
+		"claude > /dev/null",
+		"claude\nwhoami",
+		"claude code", // spaces not allowed
+	}
+	for _, cmd := range invalid {
+		if err := validateClaudeCommand(cmd); err == nil {
+			t.Errorf("validateClaudeCommand(%q) should be invalid", cmd)
+		}
+	}
+}

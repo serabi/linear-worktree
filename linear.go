@@ -54,7 +54,14 @@ func NewLinearClient(apiKey string) *LinearClient {
 }
 
 func (lc *LinearClient) query(q string, result interface{}) error {
-	payload, _ := json.Marshal(map[string]string{"query": q})
+	return lc.queryWithVars(q, nil, result)
+}
+
+func (lc *LinearClient) queryWithVars(q string, vars map[string]any, result interface{}) error {
+	payload, err := json.Marshal(map[string]any{"query": q, "variables": vars})
+	if err != nil {
+		return fmt.Errorf("marshal query: %w", err)
+	}
 
 	req, err := http.NewRequest("POST", linearAPIURL, bytes.NewReader(payload))
 	if err != nil {
@@ -109,25 +116,15 @@ func (lc *LinearClient) GetTeams() ([]Team, error) {
 	return result.Teams.Nodes, err
 }
 
-func (lc *LinearClient) GetIssues(teamID string, filter FilterMode) ([]Issue, error) {
-	filters := fmt.Sprintf(`{ team: { id: { eq: "%s" } } }`, teamID)
-
-	switch filter {
-	case FilterAssigned:
-		filters += `, { assignee: { isMe: { eq: true } } }`
-		filters += `, { state: { type: { nin: ["completed", "cancelled"] } } }`
-	case FilterTodo:
-		filters += `, { state: { type: { eq: "unstarted" } } }`
-	case FilterInProgress:
-		filters += `, { state: { type: { eq: "started" } } }`
-	case FilterAll:
-		filters += `, { state: { type: { nin: ["completed", "cancelled"] } } }`
-	}
-
-	q := fmt.Sprintf(`
-		query {
+var issueQueryByFilter = map[FilterMode]string{
+	FilterAssigned: `
+		query($teamID: String!) {
 			issues(
-				filter: { and: [%s] }
+				filter: { and: [
+					{ team: { id: { eq: $teamID } } },
+					{ assignee: { isMe: { eq: true } } },
+					{ state: { type: { nin: ["completed", "cancelled"] } } }
+				] }
 				first: 50
 				orderBy: updatedAt
 			) {
@@ -138,8 +135,65 @@ func (lc *LinearClient) GetIssues(teamID string, filter FilterMode) ([]Issue, er
 					labels { nodes { name color } }
 				}
 			}
-		}
-	`, filters)
+		}`,
+	FilterAll: `
+		query($teamID: String!) {
+			issues(
+				filter: { and: [
+					{ team: { id: { eq: $teamID } } },
+					{ state: { type: { nin: ["completed", "cancelled"] } } }
+				] }
+				first: 50
+				orderBy: updatedAt
+			) {
+				nodes {
+					id identifier title description priority url branchName
+					state { name type color }
+					assignee { name displayName }
+					labels { nodes { name color } }
+				}
+			}
+		}`,
+	FilterTodo: `
+		query($teamID: String!) {
+			issues(
+				filter: { and: [
+					{ team: { id: { eq: $teamID } } },
+					{ state: { type: { eq: "unstarted" } } }
+				] }
+				first: 50
+				orderBy: updatedAt
+			) {
+				nodes {
+					id identifier title description priority url branchName
+					state { name type color }
+					assignee { name displayName }
+					labels { nodes { name color } }
+				}
+			}
+		}`,
+	FilterInProgress: `
+		query($teamID: String!) {
+			issues(
+				filter: { and: [
+					{ team: { id: { eq: $teamID } } },
+					{ state: { type: { eq: "started" } } }
+				] }
+				first: 50
+				orderBy: updatedAt
+			) {
+				nodes {
+					id identifier title description priority url branchName
+					state { name type color }
+					assignee { name displayName }
+					labels { nodes { name color } }
+				}
+			}
+		}`,
+}
+
+func (lc *LinearClient) GetIssues(teamID string, filter FilterMode) ([]Issue, error) {
+	q := issueQueryByFilter[filter]
 
 	var result struct {
 		Issues struct {
@@ -147,21 +201,20 @@ func (lc *LinearClient) GetIssues(teamID string, filter FilterMode) ([]Issue, er
 		} `json:"issues"`
 	}
 
-	err := lc.query(q, &result)
+	err := lc.queryWithVars(q, map[string]any{"teamID": teamID}, &result)
 	return result.Issues.Nodes, err
 }
 
 func (lc *LinearClient) AddComment(issueID, body string) error {
-	q := fmt.Sprintf(`
-		mutation {
+	q := `
+		mutation($issueId: String!, $body: String!) {
 			commentCreate(input: {
-				issueId: "%s"
-				body: "%s"
+				issueId: $issueId
+				body: $body
 			}) {
 				success
 			}
-		}
-	`, issueID, escapeGraphQL(body))
+		}`
 
 	var result struct {
 		CommentCreate struct {
@@ -169,7 +222,7 @@ func (lc *LinearClient) AddComment(issueID, body string) error {
 		} `json:"commentCreate"`
 	}
 
-	if err := lc.query(q, &result); err != nil {
+	if err := lc.queryWithVars(q, map[string]any{"issueId": issueID, "body": body}, &result); err != nil {
 		return err
 	}
 	if !result.CommentCreate.Success {
@@ -179,13 +232,12 @@ func (lc *LinearClient) AddComment(issueID, body string) error {
 }
 
 func (lc *LinearClient) UpdateIssueState(issueID, stateID string) error {
-	q := fmt.Sprintf(`
-		mutation {
-			issueUpdate(id: "%s", input: { stateId: "%s" }) {
+	q := `
+		mutation($id: String!, $stateId: String!) {
+			issueUpdate(id: $id, input: { stateId: $stateId }) {
 				success
 			}
-		}
-	`, issueID, stateID)
+		}`
 
 	var result struct {
 		IssueUpdate struct {
@@ -193,7 +245,7 @@ func (lc *LinearClient) UpdateIssueState(issueID, stateID string) error {
 		} `json:"issueUpdate"`
 	}
 
-	if err := lc.query(q, &result); err != nil {
+	if err := lc.queryWithVars(q, map[string]any{"id": issueID, "stateId": stateID}, &result); err != nil {
 		return err
 	}
 	if !result.IssueUpdate.Success {
@@ -203,9 +255,9 @@ func (lc *LinearClient) UpdateIssueState(issueID, stateID string) error {
 }
 
 func (lc *LinearClient) GetComments(issueID string) ([]Comment, error) {
-	q := fmt.Sprintf(`
-		query {
-			issue(id: "%s") {
+	q := `
+		query($id: String!) {
+			issue(id: $id) {
 				comments(first: 20, orderBy: createdAt) {
 					nodes {
 						id
@@ -215,8 +267,7 @@ func (lc *LinearClient) GetComments(issueID string) ([]Comment, error) {
 					}
 				}
 			}
-		}
-	`, issueID)
+		}`
 
 	var result struct {
 		Issue struct {
@@ -226,20 +277,19 @@ func (lc *LinearClient) GetComments(issueID string) ([]Comment, error) {
 		} `json:"issue"`
 	}
 
-	if err := lc.query(q, &result); err != nil {
+	if err := lc.queryWithVars(q, map[string]any{"id": issueID}, &result); err != nil {
 		return nil, err
 	}
 	return result.Issue.Comments.Nodes, nil
 }
 
 func (lc *LinearClient) GetWorkflowStates(teamID string) ([]WorkflowState, error) {
-	q := fmt.Sprintf(`
-		query {
-			workflowStates(filter: { team: { id: { eq: "%s" } } }) {
+	q := `
+		query($teamID: String!) {
+			workflowStates(filter: { team: { id: { eq: $teamID } } }) {
 				nodes { id name type }
 			}
-		}
-	`, teamID)
+		}`
 
 	var result struct {
 		WorkflowStates struct {
@@ -247,7 +297,7 @@ func (lc *LinearClient) GetWorkflowStates(teamID string) ([]WorkflowState, error
 		} `json:"workflowStates"`
 	}
 
-	if err := lc.query(q, &result); err != nil {
+	if err := lc.queryWithVars(q, map[string]any{"teamID": teamID}, &result); err != nil {
 		return nil, err
 	}
 	return result.WorkflowStates.Nodes, nil
@@ -267,27 +317,6 @@ type WorkflowState struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Type string `json:"type"`
-}
-
-func escapeGraphQL(s string) string {
-	var result string
-	for _, c := range s {
-		switch c {
-		case '"':
-			result += `\"`
-		case '\\':
-			result += `\\`
-		case '\n':
-			result += `\n`
-		case '\r':
-			result += `\r`
-		case '\t':
-			result += `\t`
-		default:
-			result += string(c)
-		}
-	}
-	return result
 }
 
 type FilterMode int

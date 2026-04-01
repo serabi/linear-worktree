@@ -7,27 +7,6 @@ import (
 	"testing"
 )
 
-func TestEscapeGraphQL(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{`hello`, `hello`},
-		{`say "hi"`, `say \"hi\"`},
-		{"line1\nline2", `line1\nline2`},
-		{`back\slash`, `back\\slash`},
-		{`tab	here`, `tab\there`},
-		{`it's fine`, `it's fine`}, // single quotes don't need escaping in GraphQL strings
-	}
-
-	for _, tt := range tests {
-		result := escapeGraphQL(tt.input)
-		if result != tt.expected {
-			t.Errorf("escapeGraphQL(%q) = %q, want %q", tt.input, result, tt.expected)
-		}
-	}
-}
-
 func TestFilterModeNext(t *testing.T) {
 	tests := []struct {
 		mode     FilterMode
@@ -57,21 +36,22 @@ func TestFilterModeString(t *testing.T) {
 }
 
 // mockLinearServer creates a test server that responds to Linear GraphQL queries.
-func mockLinearServer(handler func(query string) (int, interface{})) *httptest.Server {
+func mockLinearServer(handler func(query string, vars map[string]any) (int, interface{})) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Query string `json:"query"`
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
 		}
 		json.NewDecoder(r.Body).Decode(&body)
 
-		status, data := handler(body.Query)
+		status, data := handler(body.Query, body.Variables)
 		w.WriteHeader(status)
 		json.NewEncoder(w).Encode(map[string]interface{}{"data": data})
 	}))
 }
 
 func TestLinearClientGetTeams(t *testing.T) {
-	server := mockLinearServer(func(query string) (int, interface{}) {
+	server := mockLinearServer(func(query string, vars map[string]any) (int, interface{}) {
 		return 200, map[string]interface{}{
 			"teams": map[string]interface{}{
 				"nodes": []map[string]string{
@@ -112,7 +92,7 @@ func TestLinearClientGetTeams(t *testing.T) {
 }
 
 func TestLinearClientGetIssues(t *testing.T) {
-	server := mockLinearServer(func(query string) (int, interface{}) {
+	server := mockLinearServer(func(query string, vars map[string]any) (int, interface{}) {
 		return 200, map[string]interface{}{
 			"issues": map[string]interface{}{
 				"nodes": []map[string]interface{}{
@@ -162,7 +142,7 @@ func TestLinearClientGetIssues(t *testing.T) {
 }
 
 func TestLinearClientAddComment(t *testing.T) {
-	server := mockLinearServer(func(query string) (int, interface{}) {
+	server := mockLinearServer(func(query string, vars map[string]any) (int, interface{}) {
 		return 200, map[string]interface{}{
 			"commentCreate": map[string]interface{}{
 				"success": true,
@@ -188,7 +168,7 @@ func TestLinearClientAddComment(t *testing.T) {
 }
 
 func TestLinearClientGetComments(t *testing.T) {
-	server := mockLinearServer(func(query string) (int, interface{}) {
+	server := mockLinearServer(func(query string, vars map[string]any) (int, interface{}) {
 		return 200, map[string]interface{}{
 			"issue": map[string]interface{}{
 				"comments": map[string]interface{}{
@@ -225,6 +205,38 @@ func TestLinearClientGetComments(t *testing.T) {
 	}
 	if comments[0].Body != "First comment" {
 		t.Errorf("expected 'First comment', got '%s'", comments[0].Body)
+	}
+}
+
+func TestGraphQLVariablesAreSent(t *testing.T) {
+	var receivedVars map[string]any
+	server := mockLinearServer(func(query string, vars map[string]any) (int, interface{}) {
+		receivedVars = vars
+		return 200, map[string]interface{}{
+			"issues": map[string]interface{}{
+				"nodes": []map[string]interface{}{},
+			},
+		}
+	})
+	defer server.Close()
+
+	client := &LinearClient{
+		apiKey: "test-key",
+		client: &http.Client{
+			Transport: &rewriteTransport{
+				base:    server.Client().Transport,
+				destURL: server.URL,
+			},
+		},
+	}
+
+	client.GetIssues("team-abc-123", FilterAll)
+
+	if receivedVars == nil {
+		t.Fatal("expected variables to be sent, got nil")
+	}
+	if receivedVars["teamID"] != "team-abc-123" {
+		t.Errorf("expected teamID variable 'team-abc-123', got %v", receivedVars["teamID"])
 	}
 }
 

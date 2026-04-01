@@ -78,12 +78,19 @@ func CreateWorktree(identifier string, cfg Config) (string, error) {
 
 	wtPath := filepath.Join(worktreeBase, strings.ToLower(identifier))
 
+	// Prevent path traversal
+	cleanBase := filepath.Clean(worktreeBase)
+	cleanPath := filepath.Clean(wtPath)
+	if !strings.HasPrefix(cleanPath, cleanBase+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid identifier: path escapes worktree base")
+	}
+
 	// Already exists?
 	if _, err := os.Stat(wtPath); err == nil {
 		return wtPath, nil
 	}
 
-	os.MkdirAll(worktreeBase, 0755)
+	os.MkdirAll(worktreeBase, 0700)
 
 	// Check if branch exists
 	checkCmd := exec.Command("git", "branch", "--list", branchName)
@@ -142,20 +149,28 @@ func RemoveWorktree(wtPath string) error {
 	if branch != "" {
 		cmd = exec.Command("git", "branch", "-D", branch)
 		cmd.Dir = root
-		cmd.Run() // best effort
+		// Best-effort branch cleanup: the branch may have already been deleted
+		// or may be checked out elsewhere. The worktree itself has already been
+		// removed, so failing here is acceptable.
+		cmd.Run()
 	}
 
 	return nil
 }
 
 func copyFile(src, dst string) error {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
 
-	out, err := os.Create(dst)
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, srcInfo.Mode())
 	if err != nil {
 		return err
 	}
