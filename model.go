@@ -84,6 +84,7 @@ func NewModel(cfg Config) Model {
 		detailViewport:   vp,
 		launchList:       ll,
 		promptArea:       ta,
+		teamCache:        make(map[string]*teamState),
 	}
 	if cfg.NeedsSetup() {
 		m.settingsFirstRun = true

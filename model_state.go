@@ -344,6 +344,16 @@ type settingsDraft struct {
 	prompt     string
 }
 
+type teamState struct {
+	issues         []Issue
+	projects       []Project
+	workflowStates []WorkflowState
+	filter         FilterMode
+	projectFilter  *string
+	projectName    string
+	listIndex      int
+}
+
 type Model struct {
 	cfg              Config
 	list             list.Model
@@ -355,6 +365,8 @@ type Model struct {
 	detailIssue      *Issue
 	width            int
 	height           int
+
+	teamCache map[string]*teamState
 
 	cmuxClient  *CmuxClient
 	paneManager *PaneManager
@@ -563,6 +575,44 @@ func (m *Model) updateListTitle() {
 	if m.list.Title == "" {
 		m.list.Title = "Issues"
 	}
+}
+
+func (m *Model) saveTeamState() {
+	if m.cfg.TeamKey == "" || m.issues == nil {
+		return
+	}
+	issues := make([]Issue, len(m.issues))
+	copy(issues, m.issues)
+	projects := make([]Project, len(m.projects))
+	copy(projects, m.projects)
+	states := make([]WorkflowState, len(m.workflowStates))
+	copy(states, m.workflowStates)
+	m.teamCache[m.cfg.TeamKey] = &teamState{
+		issues:         issues,
+		projects:       projects,
+		workflowStates: states,
+		filter:         m.filter,
+		projectFilter:  m.projectFilter,
+		projectName:    m.projectName,
+		listIndex:      m.list.Index(),
+	}
+}
+
+func (m *Model) restoreTeamState() bool {
+	ts, ok := m.teamCache[m.cfg.TeamKey]
+	if !ok {
+		return false
+	}
+	m.issues = ts.issues
+	m.projects = ts.projects
+	m.workflowStates = ts.workflowStates
+	m.filter = ts.filter
+	m.projectFilter = ts.projectFilter
+	m.projectName = ts.projectName
+	m.rebuildList()
+	m.list.Select(ts.listIndex)
+	m.updateListTitle()
+	return true
 }
 
 func (m *Model) flushTeamState() {
