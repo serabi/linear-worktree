@@ -152,7 +152,7 @@ func RemoveWorktree(wtPath string) error {
 		// Best-effort branch cleanup: the branch may have already been deleted
 		// or may be checked out elsewhere. The worktree itself has already been
 		// removed, so failing here is acceptable.
-		cmd.Run()
+		_ = cmd.Run()
 	}
 
 	return nil
@@ -168,16 +168,18 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 
 	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, srcInfo.Mode())
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
-	_, err = io.Copy(out, in)
-	return err
+	if _, err = io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Close()
 }
 
 func copyDir(src, dst string) error {
