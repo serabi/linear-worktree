@@ -51,8 +51,8 @@ func ListWorktrees() ([]Worktree, error) {
 		case strings.HasPrefix(line, "HEAD "):
 			current.Head = line[5:]
 		case strings.HasPrefix(line, "branch "):
-			parts := strings.Split(line[7:], "/")
-			current.Branch = parts[len(parts)-1]
+			branchRef := line[7:]
+			current.Branch = strings.TrimPrefix(branchRef, "refs/heads/")
 		case line == "bare":
 			current.Bare = true
 		}
@@ -73,7 +73,7 @@ func CreateWorktree(identifier string, cfg Config) (string, error) {
 	branchName := cfg.BranchPrefix + strings.ToLower(identifier)
 	worktreeBase := cfg.WorktreeBase
 	if !filepath.IsAbs(worktreeBase) {
-		worktreeBase = filepath.Join(root, "..", "worktrees")
+		worktreeBase = filepath.Join(root, worktreeBase)
 	}
 
 	wtPath := filepath.Join(worktreeBase, strings.ToLower(identifier))
@@ -133,8 +133,9 @@ func RemoveWorktree(wtPath string) error {
 	// Find branch name
 	worktrees, _ := ListWorktrees()
 	var branch string
+	targetPath := normalizePath(wtPath)
 	for _, wt := range worktrees {
-		if wt.Path == wtPath {
+		if normalizePath(wt.Path) == targetPath {
 			branch = wt.Branch
 			break
 		}
@@ -156,6 +157,14 @@ func RemoveWorktree(wtPath string) error {
 	}
 
 	return nil
+}
+
+func normalizePath(p string) string {
+	cleaned := filepath.Clean(p)
+	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
+		return resolved
+	}
+	return cleaned
 }
 
 func copyFile(src, dst string) error {

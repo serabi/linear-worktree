@@ -168,6 +168,7 @@ type claudeLaunchedMsg struct {
 type cmuxSlotOpenedMsg struct {
 	slotIdx    int
 	identifier string
+	wtPath     string
 	err        error
 }
 
@@ -449,9 +450,9 @@ func (m Model) openCmuxSlotWithPromptCmd(issue Issue, wtPath, prompt string) tea
 	return func() tea.Msg {
 		slot, err := m.paneManager.OpenSlotWithPrompt(issue, wtPath, prompt, m.cfg)
 		if err != nil {
-			return cmuxSlotOpenedMsg{err: err, identifier: issue.Identifier}
+			return cmuxSlotOpenedMsg{err: err, identifier: issue.Identifier, wtPath: wtPath}
 		}
-		return cmuxSlotOpenedMsg{slotIdx: slot.Index, identifier: issue.Identifier}
+		return cmuxSlotOpenedMsg{slotIdx: slot.Index, identifier: issue.Identifier, wtPath: wtPath}
 	}
 }
 
@@ -580,8 +581,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Fall back to tmux
 			for _, issue := range m.issues {
 				if issue.Identifier == msg.identifier {
-					wtPath := m.cfg.WorktreeBase + "/" + strings.ToLower(msg.identifier)
-					return m, m.launchClaudeCmd(wtPath, issue)
+					return m, m.launchClaudeCmd(msg.wtPath, issue)
 				}
 			}
 		} else {

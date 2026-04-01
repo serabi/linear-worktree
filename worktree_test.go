@@ -97,6 +97,37 @@ func TestCreateWorktree(t *testing.T) {
 	}
 }
 
+func TestCreateWorktreeRelativeBase(t *testing.T) {
+	repoDir := setupTestRepo(t)
+	cfg := Config{
+		BranchPrefix: "feature/",
+		WorktreeBase: ".worktrees",
+	}
+
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(origDir); err != nil {
+			t.Errorf("restore dir: %v", err)
+		}
+	}()
+
+	path, err := CreateWorktree("TEST-124", cfg)
+	if err != nil {
+		t.Fatalf("CreateWorktree() error: %v", err)
+	}
+
+	wantPath := filepath.Join(repoDir, ".worktrees", "test-124")
+	if normalizePath(path) != normalizePath(wantPath) {
+		t.Fatalf("CreateWorktree() path = %q, want %q", path, wantPath)
+	}
+}
+
 func TestListWorktrees(t *testing.T) {
 	repoDir := setupTestRepo(t)
 
@@ -122,6 +153,45 @@ func TestListWorktrees(t *testing.T) {
 	if len(wts) < 1 {
 		t.Fatal("expected at least 1 worktree (main)")
 	}
+}
+
+func TestListWorktreesPreservesBranchNameWithSlash(t *testing.T) {
+	repoDir := setupTestRepo(t)
+	worktreeBase := filepath.Join(t.TempDir(), "worktrees")
+	cfg := Config{
+		BranchPrefix: "feature/",
+		WorktreeBase: worktreeBase,
+	}
+
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(origDir); err != nil {
+			t.Errorf("restore dir: %v", err)
+		}
+	}()
+
+	path, err := CreateWorktree("TEST-123", cfg)
+	if err != nil {
+		t.Fatalf("CreateWorktree() error: %v", err)
+	}
+
+	wts, err := ListWorktrees()
+	if err != nil {
+		t.Fatalf("ListWorktrees() error: %v", err)
+	}
+
+	for _, wt := range wts {
+		if wt.Branch == "feature/test-123" {
+			return
+		}
+	}
+	t.Fatalf("created worktree with branch %q not found in list (path: %q)", "feature/test-123", path)
 }
 
 func TestRemoveWorktree(t *testing.T) {
@@ -158,6 +228,47 @@ func TestRemoveWorktree(t *testing.T) {
 
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Error("worktree directory should not exist after removal")
+	}
+}
+
+func TestRemoveWorktreeDeletesSlashBranch(t *testing.T) {
+	repoDir := setupTestRepo(t)
+	worktreeBase := filepath.Join(t.TempDir(), "worktrees")
+	cfg := Config{
+		BranchPrefix: "feature/",
+		WorktreeBase: worktreeBase,
+	}
+
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(origDir); err != nil {
+			t.Errorf("restore dir: %v", err)
+		}
+	}()
+
+	path, err := CreateWorktree("TEST-777", cfg)
+	if err != nil {
+		t.Fatalf("CreateWorktree() error: %v", err)
+	}
+
+	if err := RemoveWorktree(path); err != nil {
+		t.Fatalf("RemoveWorktree() error: %v", err)
+	}
+
+	cmd := exec.Command("git", "branch", "--list", "feature/test-777")
+	cmd.Dir = repoDir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git branch list: %v", err)
+	}
+	if len(out) != 0 {
+		t.Fatalf("branch feature/test-777 still exists after remove: %q", string(out))
 	}
 }
 
