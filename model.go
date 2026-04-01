@@ -1522,6 +1522,12 @@ func (m *Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.settingsActiveTab = 2
 		return m, nil
 	case "ctrl+s":
+		// Flush the active field's value before saving
+		// (huh only writes bound values on blur, not every keystroke)
+		active := m.settingsTabs[m.settingsActiveTab]
+		if active != nil {
+			active.NextField()
+		}
 		return m.handleSettingsCompleted()
 	case "esc":
 		if m.settingsFirstRun {
@@ -2280,6 +2286,7 @@ func (m *Model) handleSettingsCompleted() (tea.Model, tea.Cmd) {
 	for i, t := range m.cfg.Teams {
 		oldKeys[i] = t.Key
 	}
+	debugLog.Printf("settings save: teamKeys=%v oldKeys=%v", teamKeys, oldKeys)
 	if strings.Join(teamKeys, ",") != strings.Join(oldKeys, ",") || newCfg.TeamID == "" {
 		m.cfg = newCfg
 		m.statusMsg = "Resolving teams..."
