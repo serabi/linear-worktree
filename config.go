@@ -15,9 +15,12 @@ type Config struct {
 	WorktreeBase  string   `json:"worktree_base_dir"`
 	CopyFiles     []string `json:"copy_files"`
 	CopyDirs      []string `json:"copy_dirs"`
-	ClaudeCommand string   `json:"claude_command"`
-	BranchPrefix  string   `json:"branch_prefix"`
-	MaxSlots      int      `json:"max_slots"` // 2, 3, or 4
+	ClaudeCommand  string `json:"claude_command"`
+	ClaudeArgs     string `json:"claude_args"`
+	BranchPrefix   string `json:"branch_prefix"`
+	MaxSlots       int    `json:"max_slots"` // 2, 3, or 4
+	PostCreateHook string `json:"post_create_hook"`
+	PromptTemplate string `json:"prompt_template"`
 }
 
 func DefaultConfig() Config {
