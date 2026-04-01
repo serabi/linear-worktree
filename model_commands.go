@@ -17,7 +17,7 @@ func (m Model) fetchIssues() tea.Cmd {
 				issues, _, err := client.GetIssuesWithNoProject(m.cfg.TeamID, m.filter, "")
 				return issuesLoadedMsg{issues: issues, err: err}
 			}
-			issues, _, err := client.GetIssuesByProject(m.cfg.TeamID, *m.projectFilter, "")
+			issues, _, err := client.GetIssuesByProject(m.cfg.TeamID, *m.projectFilter, "", m.filter)
 			return issuesLoadedMsg{issues: issues, err: err}
 		}
 		issues, _, err := client.GetIssues(m.cfg.TeamID, m.filter, "")

@@ -69,27 +69,40 @@ func (m Model) viewList() string {
 		return appStyle.Render(lipgloss.JoinVertical(lipgloss.Left, slotBar, teamBar, overlay))
 	}
 
-	listHint := ""
-	if len(m.issues) == 0 && m.filter == FilterAssigned {
-		listHint = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#EAB308")).
-			Padding(1, 2).
-			Render(fmt.Sprintf("No issues assigned to you in %s. Press tab or f to see all issues.", m.cfg.TeamKey))
-	} else if len(m.issues) == 0 {
-		listHint = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#888")).
-			Padding(1, 2).
-			Render("No issues found.")
+	if len(m.issues) == 0 {
+		listH := m.list.Height()
+		var hint string
+		if m.filter == FilterAssigned {
+			hint = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#EAB308")).
+				Render(fmt.Sprintf("No issues assigned to you in %s.\nPress tab or f to see all issues.", m.cfg.TeamKey))
+		} else {
+			hint = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#888")).
+				Render("No issues found.")
+		}
+		content = lipgloss.Place(m.width-2, listH, lipgloss.Center, lipgloss.Center, hint)
 	}
 
 	status := statusBarStyle.Render(m.statusMsg)
-	hint := statusBarStyle.Render("? help")
+	shortcutText := "enter:detail  c:claude  p:project  f:filter  s:settings  ?:help"
+	if len(m.cfg.Teams) > 1 {
+		shortcutText = "enter:detail  c:claude  1-9:team  p:project  f:filter  s:settings  ?:help"
+	} else {
+		shortcutText = "enter:detail  c:claude  p:project  f:filter  s:settings(+teams)  ?:help"
+	}
+	shortcuts := statusBarStyle.Render(shortcutText)
 	base := appStyle.Render(
-		lipgloss.JoinVertical(lipgloss.Left, slotBar, teamBar, listHint, content, status, hint),
+		lipgloss.JoinVertical(lipgloss.Left, slotBar, teamBar, content, status, shortcuts),
 	)
 
 	if m.showHelp {
 		m.help.ShowAll = true
+		helpWidth := m.width - 10
+		if helpWidth < 40 {
+			helpWidth = 40
+		}
+		m.help.Width = helpWidth
 		helpContent := m.help.View(m.keys)
 		helpBox := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
