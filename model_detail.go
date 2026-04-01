@@ -238,7 +238,15 @@ func (m Model) writeDetailComments(b *strings.Builder, issue *Issue, ctx detailR
 		Foreground(faintColor).
 		Render(strings.Repeat("─", ctx.width-4))
 
-	for i, comment := range m.cachedComments {
+	comments := m.cachedComments
+	if !m.commentSortAsc {
+		comments = make([]Comment, len(m.cachedComments))
+		for j := range m.cachedComments {
+			comments[len(m.cachedComments)-1-j] = m.cachedComments[j]
+		}
+	}
+
+	for i, comment := range comments {
 		name := comment.User.DisplayName
 		if name == "" {
 			name = comment.User.Name
@@ -271,7 +279,7 @@ func (m Model) writeDetailComments(b *strings.Builder, issue *Issue, ctx detailR
 			}
 		}
 
-		if i < len(m.cachedComments)-1 {
+		if i < len(comments)-1 {
 			b.WriteString("  " + commentSep + "\n")
 		}
 	}

@@ -343,6 +343,7 @@ const (
 	viewFilterPicker
 	viewSearch
 	viewLinkPicker
+	viewSortPicker
 )
 
 type settingsDraft struct {
@@ -375,6 +376,7 @@ type Model struct {
 	issues           []Issue
 	worktreeBranches map[string]bool
 	filter           FilterMode
+	sortMode         SortMode
 	view             viewMode
 	statusMsg        string
 	detailIssue      *Issue
@@ -392,6 +394,7 @@ type Model struct {
 
 	cachedComments  []Comment
 	cachedCommentID string
+	commentSortAsc  bool
 
 	detailViewport viewport.Model
 
@@ -424,6 +427,7 @@ type Model struct {
 	stateIssue     *Issue
 
 	filterForm *huh.Form
+	sortForm   *huh.Form
 
 	searchInput textinput.Model
 	searching   bool
@@ -571,6 +575,7 @@ func (m Model) buildStatusLine() string {
 	}
 	parts = append(parts, fmt.Sprintf("%d issues", len(m.issues)))
 	parts = append(parts, m.filter.String())
+	parts = append(parts, m.sortMode.String())
 	if m.useCmux && m.paneManager != nil {
 		parts = append(parts, fmt.Sprintf("slots: %d/%d", m.paneManager.ActiveCount(), m.cfg.MaxSlots))
 	}

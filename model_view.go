@@ -29,6 +29,8 @@ func (m Model) View() string {
 		base = m.viewPicker("Open Link", m.linkPickerForm)
 	case viewFilterPicker:
 		base = m.viewPicker("Filter Issues", m.filterForm)
+	case viewSortPicker:
+		base = m.viewPicker("Sort Issues", m.sortForm)
 	case viewSearch:
 		base = m.viewSearchInput()
 	default:
@@ -108,11 +110,17 @@ func (m Model) viewList() string {
 
 	status := statusBarStyle.Render(m.statusMsg)
 	legend := statusBarStyle.Render(renderLegendCompact())
-	shortcutText := "enter:detail  c:claude  p:project  f:filter  s:settings  ?:help"
+	var row1, row2 string
 	if len(m.cfg.Teams) > 1 {
-		shortcutText = "enter:detail  c:claude  1-9:team  p:project  f:filter  s:settings  ?:help"
+		row1 = "enter:detail  c:claude  1-9:team  p:project"
+		row2 = "f:filter  o:sort  s:settings  ?:help"
 	} else {
-		shortcutText = "enter:detail  c:claude  p:project  f:filter  s:settings(+teams)  ?:help"
+		row1 = "enter:detail  c:claude  p:project"
+		row2 = "f:filter  o:sort  s:settings(+teams)  ?:help"
+	}
+	shortcutText := row1 + "  " + row2
+	if lipgloss.Width(shortcutText)+2 > m.width {
+		shortcutText = row1 + "\n" + row2
 	}
 	shortcuts := statusBarStyle.Render(shortcutText)
 	base := appStyle.Render(
@@ -147,9 +155,22 @@ func (m Model) viewDetail() string {
 
 	header := titleStyle.Render(fmt.Sprintf("Issue: %s", identifier))
 
-	status := statusBarStyle.Render(
-		"d/esc:back  j/k:scroll  m:comment  t:transition  g:open  q:quit",
-	)
+	sortLabel := "o:oldest"
+	if !m.commentSortAsc {
+		sortLabel = "o:newest"
+	}
+	detailKeys := func(prefix string) string {
+		line := fmt.Sprintf("%sd:back  j/k:scroll  m:comment  r:refresh  %s  s:status  g:open  q:quit", prefix, sortLabel)
+		// If the line fits, use one row; otherwise split into two rows
+		if lipgloss.Width(line)+2 <= m.width {
+			return statusBarStyle.Render(line)
+		}
+		row1 := fmt.Sprintf("%sd:back  j/k:scroll  m:comment  r:refresh  %s", prefix, sortLabel)
+		row2 := "s:status  g:open  q:quit"
+		return statusBarStyle.Render(row1 + "\n" + row2)
+	}
+
+	status := detailKeys("")
 
 	if m.loading && m.detailIssue != nil && m.cachedCommentID != m.detailIssue.ID {
 		loadingBox := lipgloss.NewStyle().
@@ -163,9 +184,7 @@ func (m Model) viewDetail() string {
 
 	body := m.detailViewport.View()
 	scrollPct := fmt.Sprintf("%3.f%%", m.detailViewport.ScrollPercent()*100)
-	status = statusBarStyle.Render(
-		fmt.Sprintf("%s | d/esc:back  j/k:scroll  m:comment  t:transition  g:open  q:quit", scrollPct),
-	)
+	status = detailKeys(scrollPct + " | ")
 
 	return appStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, body, status))
 }
