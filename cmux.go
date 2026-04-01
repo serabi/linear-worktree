@@ -214,13 +214,62 @@ func NewPaneManager(client *CmuxClient, maxSlots int) *PaneManager {
 	if maxSlots == 4 {
 		layout = LayoutGrid
 	}
+
+	workspaceID := os.Getenv("CMUX_WORKSPACE_ID")
+	surfaceID := os.Getenv("CMUX_SURFACE_ID")
+
+	// If env vars are missing, discover via cmux identify
+	if workspaceID == "" || surfaceID == "" {
+		if id, err := cmuxIdentify(); err == nil {
+			if workspaceID == "" {
+				workspaceID = id.workspaceRef
+			}
+			if surfaceID == "" {
+				surfaceID = id.surfaceRef
+			}
+			debugLog.Printf("cmux identify: workspace=%s surface=%s", workspaceID, surfaceID)
+		}
+	}
+
 	return &PaneManager{
 		client:      client,
-		workspaceID: os.Getenv("CMUX_WORKSPACE_ID"),
-		tuiSurface:  os.Getenv("CMUX_SURFACE_ID"),
+		workspaceID: workspaceID,
+		tuiSurface:  surfaceID,
 		maxSlots:    maxSlots,
 		layout:      layout,
 	}
+}
+
+type cmuxIdentifyResult struct {
+	workspaceRef string
+	surfaceRef   string
+}
+
+func cmuxIdentify() (*cmuxIdentifyResult, error) {
+	cmuxPath, err := exec.LookPath("cmux")
+	if err != nil {
+		return nil, err
+	}
+	out, err := exec.Command(cmuxPath, "identify").Output()
+	if err != nil {
+		return nil, err
+	}
+	var parsed struct {
+		Caller *struct {
+			WorkspaceRef string `json:"workspace_ref"`
+			SurfaceRef   string `json:"surface_ref"`
+		} `json:"caller"`
+	}
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		return nil, err
+	}
+	if parsed.Caller == nil {
+		return nil, fmt.Errorf("no caller in cmux identify output")
+	}
+	return &cmuxIdentifyResult{
+		workspaceRef: parsed.Caller.WorkspaceRef,
+		surfaceRef:   parsed.Caller.SurfaceRef,
+	}, nil
 }
 
 // OpenSlot adds an issue to the next available slot, creates a pane, and launches Claude.
