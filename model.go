@@ -276,7 +276,7 @@ type viewMode int
 
 const (
 	viewList viewMode = iota
-	viewSetup
+	viewSettings
 	viewComment
 	viewDetail
 	viewLaunch
@@ -726,8 +726,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch m.view {
-		case viewSetup:
-			return m.updateSetup(msg)
+		case viewSettings:
+			return m.updateSettings(msg)
 		case viewComment:
 			return m.updateComment(msg)
 		case viewDetail:
@@ -927,7 +927,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Route non-key messages to active huh forms
-	if m.view == viewSetup && m.settingsTabs[0] != nil {
+	if m.view == viewSettings && m.settingsTabs[0] != nil {
 		f := m.activeSettingsForm()
 		form, cmd := f.Update(msg)
 		if updated, ok := form.(*huh.Form); ok {
@@ -1344,7 +1344,7 @@ func (m Model) launchWithPromptCmd(issue Issue, prompt string) tea.Cmd {
 	}
 }
 
-func (m *Model) updateSetup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.settingsTabs[0] == nil {
 		return m, nil
 	}
@@ -1459,8 +1459,8 @@ func (m Model) buildStatusLine() string {
 
 func (m Model) View() string {
 	switch m.view {
-	case viewSetup:
-		return m.viewSetup()
+	case viewSettings:
+		return m.viewSettings()
 	case viewComment:
 		return m.viewComment()
 	case viewDetail:
@@ -1758,7 +1758,7 @@ func (m Model) viewComment() string {
 	)
 }
 
-func (m Model) viewSetup() string {
+func (m Model) viewSettings() string {
 	if m.settingsTabs[0] == nil {
 		return ""
 	}
@@ -1818,7 +1818,7 @@ func (m *Model) initSettingsForm() {
 		m.settingsTabs[i] = m.buildTab(i, w)
 	}
 
-	m.view = viewSetup
+	m.view = viewSettings
 }
 
 func (m *Model) buildTab(index, w int) *huh.Form {
