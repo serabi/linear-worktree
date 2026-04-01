@@ -101,7 +101,7 @@ func migrateAPIKeyToKeyring(cfg *Config, path string) {
 	fileCfg := *cfg
 	fileCfg.LinearAPIKey = ""
 	if data, err := json.MarshalIndent(fileCfg, "", "  "); err == nil {
-		os.WriteFile(path, data, 0600)
+		_ = os.WriteFile(path, data, 0600)
 	}
 }
 
