@@ -67,7 +67,9 @@ func TestSaveAndLoadConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal config: %v", err)
 	}
-	os.MkdirAll(filepath.Dir(path), 0755)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -93,7 +95,7 @@ func TestSaveAndLoadConfig(t *testing.T) {
 
 func TestSaveConfigStoresAPIKeyInKeyring(t *testing.T) {
 	// Clean up keyring before test
-	deleteAPIKey()
+	_ = deleteAPIKey()
 
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "config.json")
@@ -119,13 +121,19 @@ func TestSaveConfigStoresAPIKeyInKeyring(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	os.MkdirAll(filepath.Dir(path), 0700)
-	os.WriteFile(path, data, 0600)
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
 
 	// Verify: file should NOT contain the API key
 	fileData, _ := os.ReadFile(path)
 	var fileCfg Config
-	json.Unmarshal(fileData, &fileCfg)
+	if err := json.Unmarshal(fileData, &fileCfg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	if fileCfg.LinearAPIKey != "" {
 		t.Errorf("API key should not be in JSON file after save, got %q", fileCfg.LinearAPIKey)
 	}
@@ -140,12 +148,12 @@ func TestSaveConfigStoresAPIKeyInKeyring(t *testing.T) {
 	}
 
 	// Clean up
-	deleteAPIKey()
+	_ = deleteAPIKey()
 }
 
 func TestAPIKeyMigration(t *testing.T) {
 	// Clean up keyring
-	deleteAPIKey()
+	_ = deleteAPIKey()
 
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "config.json")
@@ -160,13 +168,19 @@ func TestAPIKeyMigration(t *testing.T) {
 		WorktreeBase:  "../worktrees",
 	}
 	data, _ := json.MarshalIndent(legacyCfg, "", "  ")
-	os.MkdirAll(filepath.Dir(path), 0700)
-	os.WriteFile(path, data, 0600)
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
 
 	// Simulate migration: read config, find key in file but not keyring, migrate
 	var cfg Config
 	fileData, _ := os.ReadFile(path)
-	json.Unmarshal(fileData, &cfg)
+	if err := json.Unmarshal(fileData, &cfg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 
 	if cfg.LinearAPIKey == "" {
 		t.Fatal("legacy config should have API key in file")
@@ -187,13 +201,15 @@ func TestAPIKeyMigration(t *testing.T) {
 	// Verify: file should no longer have the key
 	fileData, _ = os.ReadFile(path)
 	var fileCfg Config
-	json.Unmarshal(fileData, &fileCfg)
+	if err := json.Unmarshal(fileData, &fileCfg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	if fileCfg.LinearAPIKey != "" {
 		t.Errorf("file should not contain API key after migration, got %q", fileCfg.LinearAPIKey)
 	}
 
 	// Clean up
-	deleteAPIKey()
+	_ = deleteAPIKey()
 }
 
 func TestValidateClaudeCommand(t *testing.T) {
