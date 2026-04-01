@@ -195,6 +195,7 @@ type worktreeCreatedMsg struct {
 	path       string
 	identifier string
 	err        error
+	hookErr    error
 }
 
 type claudeLaunchedMsg struct {
@@ -276,7 +277,7 @@ type viewMode int
 
 const (
 	viewList viewMode = iota
-	viewSetup
+	viewSettings
 	viewComment
 	viewDetail
 	viewLaunch
@@ -287,12 +288,6 @@ const (
 	viewSearch
 )
 
-type setupField int
-
-const (
-	fieldAPIKey setupField = iota
-	fieldTeamKey
-)
 
 // --- Model ---
 
@@ -336,10 +331,22 @@ type Model struct {
 	launchList  list.Model
 	promptArea  textarea.Model
 
-	// Setup fields
-	setupField   setupField
-	apiKeyInput  textinput.Model
-	teamKeyInput textinput.Model
+	// Settings tabs
+	settingsTabs      [3]*huh.Form
+	settingsTabNames  [3]string
+	settingsActiveTab int
+	settingsAPIKey    string
+	settingsTeamKey   string
+	settingsWtBase    string
+	settingsCopyFiles string
+	settingsCopyDirs  string
+	settingsClaudeCmd string
+	settingsClaudeArgs string
+	settingsBranch    string
+	settingsMaxSlots  int
+	settingsHook      string
+	settingsPrompt    string
+	settingsFirstRun  bool
 
 	// Viewer (authenticated user)
 	viewer *Viewer
@@ -382,6 +389,7 @@ type keyMap struct {
 	Project    key.Binding
 	State      key.Binding
 	Assign     key.Binding
+	Help       key.Binding
 	Quit       key.Binding
 }
 
@@ -398,16 +406,17 @@ func defaultKeyMap() keyMap {
 		Open:       key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "open")),
 		Refresh:    key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
 		Search:     key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
-		Setup:      key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "setup")),
+		Setup:      key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "settings")),
 		Project:    key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "project")),
 		State:      key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "transition")),
 		Assign:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "assign to me")),
+		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 		Quit:       key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
 	}
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Claude, k.Detail, k.Project, k.FilterPick, k.State, k.Assign, k.Quit}
+	return []key.Binding{k.Claude, k.Detail, k.Project, k.FilterPick, k.Setup, k.Help}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
@@ -415,7 +424,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.Navigate, k.Claude, k.Worktree, k.Close},
 		{k.Comment, k.Detail, k.Filter, k.FilterPick, k.Search},
 		{k.Project, k.State, k.Assign, k.Open},
-		{k.Refresh, k.Setup, k.Quit},
+		{k.Refresh, k.Setup, k.Help, k.Quit},
 	}
 }
 
@@ -435,15 +444,6 @@ func NewModel(cfg Config) Model {
 	l.SetShowStatusBar(false)
 	l.SetFilteringEnabled(true)
 	l.Styles.Title = titleStyle
-
-	// Setup inputs
-	apiKey := textinput.New()
-	apiKey.Placeholder = "lin_api_..."
-	apiKey.EchoMode = textinput.EchoPassword
-	apiKey.Focus()
-
-	teamKey := textinput.New()
-	teamKey.Placeholder = "TSCODE"
 
 	// Comment input
 	commentIn := textinput.New()
@@ -499,8 +499,6 @@ func NewModel(cfg Config) Model {
 		worktreeBranches: make(map[string]bool),
 		filter:           FilterAssigned,
 		view:             viewList,
-		apiKeyInput:      apiKey,
-		teamKeyInput:     teamKey,
 		commentInput:     commentIn,
 		searchInput:      searchIn,
 		cmuxClient:       cmuxClient,
@@ -514,14 +512,19 @@ func NewModel(cfg Config) Model {
 		promptArea:       ta,
 	}
 	if cfg.NeedsSetup() {
-		m.view = viewSetup
+		m.settingsFirstRun = true
+		m.initSettingsForm()
 	}
 	return m
 }
 
 func (m Model) Init() tea.Cmd {
-	if m.cfg.NeedsSetup() {
-		return textinput.Blink
+	if m.settingsTabs[0] != nil {
+		cmds := make([]tea.Cmd, len(m.settingsTabs))
+		for i := range m.settingsTabs {
+			cmds[i] = m.settingsTabs[i].Init()
+		}
+		return tea.Batch(cmds...)
 	}
 	cmds := []tea.Cmd{
 		m.fetchIssues(),
@@ -696,6 +699,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.list.SetSize(msg.Width-2, msg.Height-4)
+		if m.settingsTabs[0] != nil {
+			w := msg.Width - 4
+			if w < 60 {
+				w = 60
+			}
+			for i := range m.settingsTabs {
+				if m.settingsTabs[i] != nil {
+					m.settingsTabs[i] = m.settingsTabs[i].WithWidth(w)
+				}
+			}
+		}
 		if m.view == viewDetail && m.detailIssue != nil {
 			contentWidth := msg.Width - 6
 			m.detailViewport.Width = contentWidth
@@ -713,8 +727,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch m.view {
-		case viewSetup:
-			return m.updateSetup(msg)
+		case viewSettings:
+			return m.updateSettings(msg)
 		case viewComment:
 			return m.updateComment(msg)
 		case viewDetail:
@@ -766,7 +780,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = fmt.Sprintf("Error creating worktree: %v", msg.err)
 			return m, nil
 		}
-		m.statusMsg = fmt.Sprintf("Worktree created: %s", msg.path)
+		if msg.hookErr != nil {
+			m.statusMsg = fmt.Sprintf("Worktree created: %s (hook failed: %v)", msg.path, msg.hookErr)
+		} else {
+			m.statusMsg = fmt.Sprintf("Worktree created: %s", msg.path)
+		}
 		return m, m.fetchWorktrees()
 
 	case cmuxSlotOpenedMsg:
@@ -831,8 +849,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case setupCompleteMsg:
 		m.cfg = msg.cfg
 		m.view = viewList
-		m.statusMsg = "Setup complete! API key stored in OS keychain."
-		cmds := []tea.Cmd{m.fetchIssues(), m.fetchWorktrees()}
+		m.settingsTabs = [3]*huh.Form{}
+		m.settingsFirstRun = false
+		m.statusMsg = "Settings saved. API key stored in OS keychain."
+		m.updateListTitle()
+		m.recreatePaneManagerIfNeeded()
+		cmds := []tea.Cmd{m.fetchIssues(), m.fetchWorktrees(), m.fetchViewer(), m.fetchProjects()}
 		if m.useCmux {
 			cmds = append(cmds, m.startStatusPoll())
 		}
@@ -908,6 +930,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Route non-key messages to active huh forms
+	if m.view == viewSettings && m.settingsTabs[0] != nil {
+		f := m.activeSettingsForm()
+		form, cmd := f.Update(msg)
+		if updated, ok := form.(*huh.Form); ok {
+			m.settingsTabs[m.settingsActiveTab] = updated
+		}
+		active := m.activeSettingsForm()
+		if active.State == huh.StateCompleted {
+			initCmd := m.rebuildActiveTab()
+			if m.settingsActiveTab < len(m.settingsTabs)-1 {
+				m.settingsActiveTab++
+			}
+			return m, tea.Batch(cmd, initCmd)
+		} else if active.State == huh.StateAborted {
+			return m, tea.Batch(cmd, m.rebuildActiveTab())
+		}
+		return m, cmd
+	}
 	if m.view == viewProjectPicker && m.projectForm != nil {
 		form, cmd := m.projectForm.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
@@ -1026,11 +1066,12 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.statusMsg = fmt.Sprintf("Creating worktree for %s...", issue.Identifier)
 		return m, func() tea.Msg {
-			_, err := CreateWorktree(issue.Identifier, m.cfg)
+			wtPath, err := CreateWorktree(issue.Identifier, m.cfg)
 			if err != nil {
 				return worktreeCreatedMsg{err: err, identifier: issue.Identifier}
 			}
-			return worktreesLoadedMsg{branches: m.worktreeBranches}
+			hookErr := RunPostCreateHook(wtPath, m.cfg)
+			return worktreeCreatedMsg{path: wtPath, identifier: issue.Identifier, hookErr: hookErr}
 		}
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("x"))):
@@ -1098,12 +1139,7 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("s"))):
-		m.view = viewSetup
-		m.apiKeyInput.SetValue("")
-		m.teamKeyInput.SetValue("")
-		m.setupField = fieldAPIKey
-		m.apiKeyInput.Focus()
-		return m, textinput.Blink
+		return m, m.buildSettingsForm()
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("p"))):
 		return m, m.showProjectPicker()
@@ -1119,6 +1155,10 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.showStatePicker()
 		}
 		return m, m.fetchWorkflowStates()
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("?"))):
+		m.help.ShowAll = !m.help.ShowAll
+		return m, nil
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("S"))):
 		m.view = viewSearch
@@ -1277,13 +1317,11 @@ func (m *Model) updatePrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) buildLaunchPrompt(issue *Issue, includeComments bool) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "You're working on %s: %s", issue.Identifier, issue.Title)
-	if issue.Description != "" {
-		b.WriteString("\n\n")
-		b.WriteString(issue.Description)
-	}
+	base := buildPrompt(*issue, m.cfg)
+
 	if includeComments && len(m.cachedComments) > 0 {
+		var b strings.Builder
+		b.WriteString(base)
 		b.WriteString("\n\n---\nComments:\n")
 		for _, c := range m.cachedComments {
 			name := c.User.DisplayName
@@ -1292,8 +1330,9 @@ func (m Model) buildLaunchPrompt(issue *Issue, includeComments bool) string {
 			}
 			fmt.Fprintf(&b, "\n@%s:\n%s\n", name, c.Body)
 		}
+		return b.String()
 	}
-	return b.String()
+	return base
 }
 
 func (m Model) launchWithPromptCmd(issue Issue, prompt string) tea.Cmd {
@@ -1302,45 +1341,69 @@ func (m Model) launchWithPromptCmd(issue Issue, prompt string) tea.Cmd {
 		if err != nil {
 			return worktreeCreatedMsg{err: err, identifier: issue.Identifier}
 		}
+		if err := RunPostCreateHook(wtPath, m.cfg); err != nil {
+			debugLog.Printf("post-create hook failed: %v", err)
+		}
 		return launchReadyMsg{issue: issue, wtPath: wtPath, prompt: prompt}
 	}
 }
 
-func (m *Model) updateSetup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "ctrl+c":
-		return m, tea.Quit
-
-	case "esc":
-		if !m.cfg.NeedsSetup() {
-			m.view = viewList
-		}
+func (m *Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.settingsTabs[0] == nil {
 		return m, nil
+	}
 
-	case "tab", "enter":
-		if m.setupField == fieldAPIKey {
-			m.setupField = fieldTeamKey
-			m.apiKeyInput.Blur()
-			m.teamKeyInput.Focus()
-			return m, textinput.Blink
-		}
-		// Submit
-		apiKey := strings.TrimSpace(m.apiKeyInput.Value())
-		teamKey := strings.TrimSpace(m.teamKeyInput.Value())
-		if apiKey == "" || teamKey == "" {
-			m.statusMsg = "Both fields required"
+	switch msg.String() {
+	case "1":
+		m.settingsActiveTab = 0
+		return m, nil
+	case "2":
+		m.settingsActiveTab = 1
+		return m, nil
+	case "3":
+		m.settingsActiveTab = 2
+		return m, nil
+	case "ctrl+s":
+		return m.handleSettingsCompleted()
+	case "esc":
+		if m.settingsFirstRun {
 			return m, nil
 		}
-		m.statusMsg = "Verifying..."
-		return m, m.resolveTeamCmd(apiKey, teamKey)
+		m.settingsTabs = [3]*huh.Form{}
+		m.view = viewList
+		return m, nil
+	case "ctrl+c":
+		return m, tea.Quit
 	}
 
-	var cmd tea.Cmd
-	if m.setupField == fieldAPIKey {
-		m.apiKeyInput, cmd = m.apiKeyInput.Update(msg)
-	} else {
-		m.teamKeyInput, cmd = m.teamKeyInput.Update(msg)
+	f := m.activeSettingsForm()
+	form, cmd := f.Update(msg)
+	if updated, ok := form.(*huh.Form); ok {
+		m.settingsTabs[m.settingsActiveTab] = updated
 	}
+
+	// If the single-group form completed (Enter on last field), advance to next tab
+	// If aborted (Esc on first field), go to previous tab
+	active := m.activeSettingsForm()
+	if active.State == huh.StateCompleted {
+		initCmd := m.rebuildActiveTab()
+		if m.settingsActiveTab < len(m.settingsTabs)-1 {
+			m.settingsActiveTab++
+		}
+		return m, tea.Batch(cmd, initCmd)
+	} else if active.State == huh.StateAborted {
+		if m.settingsActiveTab > 0 {
+			initCmd := m.rebuildActiveTab()
+			m.settingsActiveTab--
+			return m, tea.Batch(cmd, initCmd)
+		} else if !m.settingsFirstRun {
+			m.settingsTabs = [3]*huh.Form{}
+			m.view = viewList
+			return m, nil
+		}
+		return m, tea.Batch(cmd, m.rebuildActiveTab())
+	}
+
 	return m, cmd
 }
 
@@ -1408,8 +1471,8 @@ func (m Model) buildStatusLine() string {
 
 func (m Model) View() string {
 	switch m.view {
-	case viewSetup:
-		return m.viewSetup()
+	case viewSettings:
+		return m.viewSettings()
 	case viewComment:
 		return m.viewComment()
 	case viewDetail:
@@ -1707,29 +1770,270 @@ func (m Model) viewComment() string {
 	)
 }
 
-func (m Model) viewSetup() string {
-	var b strings.Builder
-	b.WriteString(titleStyle.Render("linear-worktree setup"))
-	b.WriteString("\n\n")
-	b.WriteString("Linear API Key:\n")
-	b.WriteString(m.apiKeyInput.View())
-	b.WriteString("\n\n")
-	b.WriteString("Team Key (e.g. MYTEAM):\n")
-	b.WriteString(m.teamKeyInput.View())
-	b.WriteString("\n\n")
-	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#888")).Render(
-		"API key will be stored in the OS keychain.\n[Tab] next field  [Enter] save  [Esc] cancel",
-	))
-	if m.statusMsg != "" {
-		b.WriteString("\n\n")
-		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444")).Render(m.statusMsg))
+func (m Model) viewSettings() string {
+	if m.settingsTabs[0] == nil {
+		return ""
+	}
+	header := titleStyle.Render("Settings")
+	tabBar := m.renderSettingsTabBar()
+	body := m.activeSettingsForm().View()
+	help := statusBarStyle.Render("1/2/3: switch tab  Enter/Tab: next field  Shift+Tab: prev field  Ctrl+S: save  Esc: cancel")
+	return appStyle.Render(
+		lipgloss.JoinVertical(lipgloss.Left, header, tabBar, "", body, "", help),
+	)
+}
+
+// --- Project & State Pickers ---
+
+// --- Settings Tabs ---
+
+var (
+	activeTabStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#7C3AED")).
+			Border(lipgloss.NormalBorder(), false, false, true, false).
+			BorderForeground(lipgloss.Color("#7C3AED")).
+			Padding(0, 2)
+
+	inactiveTabStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#888")).
+				Border(lipgloss.NormalBorder(), false, false, true, false).
+				BorderForeground(lipgloss.Color("#444")).
+				Padding(0, 2)
+)
+
+func (m *Model) activeSettingsForm() *huh.Form {
+	return m.settingsTabs[m.settingsActiveTab]
+}
+
+func (m *Model) initSettingsForm() {
+	m.settingsAPIKey = m.cfg.LinearAPIKey
+	m.settingsTeamKey = m.cfg.TeamKey
+	m.settingsWtBase = m.cfg.WorktreeBase
+	m.settingsCopyFiles = strings.Join(m.cfg.CopyFiles, ", ")
+	m.settingsCopyDirs = strings.Join(m.cfg.CopyDirs, ", ")
+	m.settingsClaudeCmd = m.cfg.ClaudeCommand
+	m.settingsClaudeArgs = m.cfg.ClaudeArgs
+	m.settingsBranch = m.cfg.BranchPrefix
+	m.settingsMaxSlots = m.cfg.MaxSlots
+	m.settingsHook = m.cfg.PostCreateHook
+	m.settingsPrompt = m.cfg.PromptTemplate
+	m.settingsActiveTab = 0
+
+	w := m.width - 4
+	if w < 60 {
+		w = 60
 	}
 
-	return lipgloss.Place(
-		m.width, m.height,
-		lipgloss.Center, lipgloss.Center,
-		setupStyle.Render(b.String()),
-	)
+	m.settingsTabNames = [3]string{"Credentials", "Worktree", "Launch"}
+	for i := range m.settingsTabs {
+		m.settingsTabs[i] = m.buildTab(i, w)
+	}
+
+	m.view = viewSettings
+}
+
+func (m *Model) buildTab(index, w int) *huh.Form {
+	switch index {
+	case 0:
+		return huh.NewForm(
+			huh.NewGroup(
+				huh.NewInput().
+					Title("Linear API Key").
+					Description("Personal API key from Linear Settings > API. Stored securely in your OS keychain, never written to the config file.").
+					Placeholder("lin_api_...").
+					EchoMode(huh.EchoModePassword).
+					Value(&m.settingsAPIKey),
+				huh.NewInput().
+					Title("Team Key").
+					Description("The short prefix for your team's issues (e.g. TSCODE). Find it in the URL: linear.app/TEAMKEY/...").
+					Placeholder("MYTEAM").
+					Value(&m.settingsTeamKey),
+			),
+		).WithWidth(w).WithShowHelp(false).WithShowErrors(true)
+	case 1:
+		return huh.NewForm(
+			huh.NewGroup(
+				huh.NewInput().
+					Title("Worktree Base Directory").
+					Description("Where new git worktrees are created, relative to the repo root. Each issue gets a subdirectory here.").
+					Placeholder("../worktrees").
+					Value(&m.settingsWtBase),
+				huh.NewInput().
+					Title("Files to Copy").
+					Description("Comma-separated list of files copied from the main repo into each new worktree (e.g. env files, configs).").
+					Placeholder(".env, .envrc").
+					Value(&m.settingsCopyFiles),
+				huh.NewInput().
+					Title("Directories to Copy").
+					Description("Comma-separated list of directories copied into each new worktree (e.g. .claude for Claude Code settings).").
+					Placeholder(".claude").
+					Value(&m.settingsCopyDirs),
+				huh.NewInput().
+					Title("Branch Prefix").
+					Description("Prefix added to git branch names when creating worktrees. Issue TSCODE-123 becomes feature/tscode-123.").
+					Placeholder("feature/").
+					Value(&m.settingsBranch),
+			),
+		).WithWidth(w).WithShowHelp(false).WithShowErrors(true)
+	default:
+		return huh.NewForm(
+			huh.NewGroup(
+				huh.NewInput().
+					Title("Claude Command").
+					Description("The command used to launch Claude Code. Change this if claude is installed at a custom path.").
+					Placeholder("claude").
+					Value(&m.settingsClaudeCmd).
+					Validate(func(s string) error {
+						s = strings.TrimSpace(s)
+						if s == "" {
+							return nil
+						}
+						return validateClaudeCommand(s)
+					}),
+				huh.NewInput().
+					Title("Claude Args").
+					Description("Extra flags appended to every Claude launch (e.g. --model sonnet, --verbose, --allowedTools).").
+					Value(&m.settingsClaudeArgs),
+				huh.NewInput().
+					Title("Post-Create Hook").
+					Description("Shell command that runs inside the worktree directory after creation. Use for setup tasks like installing dependencies.").
+					Placeholder("npm install && direnv allow").
+					Value(&m.settingsHook),
+				huh.NewText().
+					Title("Prompt Template").
+					Description("Custom prompt sent to Claude on launch. Supports Go template variables: {{.Identifier}}, {{.Title}}, {{.Description}}. Leave empty for the default prompt.").
+					Value(&m.settingsPrompt),
+				huh.NewSelect[int]().
+					Title("Max Slots").
+					Description("Maximum number of concurrent Claude sessions in the E-layout. Only applies when running inside cmux.").
+					Options(
+						huh.NewOption("2 slots", 2),
+						huh.NewOption("3 slots", 3),
+						huh.NewOption("4 slots", 4),
+					).
+					Value(&m.settingsMaxSlots),
+			),
+		).WithWidth(w).WithShowHelp(false).WithShowErrors(true)
+	}
+}
+
+func (m *Model) buildSettingsForm() tea.Cmd {
+	m.initSettingsForm()
+	cmds := make([]tea.Cmd, len(m.settingsTabs))
+	for i := range m.settingsTabs {
+		cmds[i] = m.settingsTabs[i].Init()
+	}
+	return tea.Batch(cmds...)
+}
+
+func (m *Model) recreatePaneManagerIfNeeded() {
+	if m.paneManager == nil {
+		return
+	}
+	if m.paneManager.maxSlots == m.cfg.MaxSlots {
+		return
+	}
+	for i, slot := range m.paneManager.Slots() {
+		if slot != nil {
+			_ = m.paneManager.CloseSlot(i)
+		}
+	}
+	m.paneManager = NewPaneManager(m.cmuxClient, m.cfg.MaxSlots)
+}
+
+func (m *Model) rebuildActiveTab() tea.Cmd {
+	w := m.width - 4
+	if w < 60 {
+		w = 60
+	}
+	m.settingsTabs[m.settingsActiveTab] = m.buildTab(m.settingsActiveTab, w)
+	return m.settingsTabs[m.settingsActiveTab].Init()
+}
+
+func (m Model) renderSettingsTabBar() string {
+	var tabs []string
+	for i, name := range m.settingsTabNames {
+		label := fmt.Sprintf("[%d] %s", i+1, name)
+		if i == m.settingsActiveTab {
+			tabs = append(tabs, activeTabStyle.Render(label))
+		} else {
+			tabs = append(tabs, inactiveTabStyle.Render(label))
+		}
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
+}
+
+func (m *Model) handleSettingsCompleted() (tea.Model, tea.Cmd) {
+	apiKey := strings.TrimSpace(m.settingsAPIKey)
+	teamKey := strings.TrimSpace(m.settingsTeamKey)
+
+	if apiKey == "" || teamKey == "" {
+		m.statusMsg = "API key and team key are required"
+		m.settingsActiveTab = 0
+		return m, nil
+	}
+
+	newCfg := m.cfg
+	newCfg.LinearAPIKey = apiKey
+	newCfg.TeamKey = teamKey
+	newCfg.WorktreeBase = strings.TrimSpace(m.settingsWtBase)
+	newCfg.CopyFiles = splitComma(m.settingsCopyFiles)
+	newCfg.CopyDirs = splitComma(m.settingsCopyDirs)
+	newCfg.ClaudeCommand = strings.TrimSpace(m.settingsClaudeCmd)
+	newCfg.ClaudeArgs = strings.TrimSpace(m.settingsClaudeArgs)
+	newCfg.BranchPrefix = strings.TrimSpace(m.settingsBranch)
+	newCfg.MaxSlots = m.settingsMaxSlots
+	newCfg.PostCreateHook = strings.TrimSpace(m.settingsHook)
+	newCfg.PromptTemplate = m.settingsPrompt
+
+	if newCfg.WorktreeBase == "" {
+		newCfg.WorktreeBase = "../worktrees"
+	}
+	if newCfg.ClaudeCommand == "" {
+		newCfg.ClaudeCommand = "claude"
+	}
+	if newCfg.BranchPrefix == "" {
+		newCfg.BranchPrefix = "feature/"
+	}
+
+	m.settingsTabs = [3]*huh.Form{}
+
+	if teamKey != m.cfg.TeamKey || newCfg.TeamID == "" {
+		m.cfg = newCfg
+		m.statusMsg = "Resolving team..."
+		return m, m.resolveTeamCmd(apiKey, teamKey)
+	}
+
+	if err := SaveConfig(newCfg); err != nil {
+		m.statusMsg = fmt.Sprintf("Save error: %v", err)
+		m.view = viewList
+		return m, nil
+	}
+
+	m.cfg = newCfg
+	m.view = viewList
+	m.settingsFirstRun = false
+	m.statusMsg = "Settings saved."
+	m.updateListTitle()
+	m.recreatePaneManagerIfNeeded()
+	cmds := []tea.Cmd{m.fetchIssues(), m.fetchWorktrees()}
+	if m.useCmux {
+		cmds = append(cmds, m.startStatusPoll())
+	}
+	return m, tea.Batch(cmds...)
+}
+
+func splitComma(s string) []string {
+	parts := strings.Split(s, ",")
+	var result []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
 }
 
 // --- Project & State Pickers ---
