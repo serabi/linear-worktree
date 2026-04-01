@@ -345,6 +345,8 @@ func NewModel(cfg Config) Model {
 	var pm *PaneManager
 	if useCmux {
 		pm = NewPaneManager(cmuxClient, cfg.MaxSlots)
+		pm.RenameWorkspace("linear-worktree")
+		pm.renameTab(pm.tuiSurface, "linear-worktree")
 	}
 
 	// Spinner for loading states

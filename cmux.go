@@ -343,6 +343,7 @@ func (pm *PaneManager) OpenSlotWithPrompt(issue Issue, wtPath, prompt string, cf
 	}
 	pm.slots[slotIdx] = slot
 	pm.setStatusPill(slot)
+	pm.renameTab(surfaceID, issue.Identifier)
 	return slot, nil
 }
 
@@ -511,6 +512,30 @@ func (pm *PaneManager) clearStatusPill(slot *WorktreeSlot) {
 	}
 	cmd := exec.Command(cmuxPath, "clear-status", statusPillKey(slot),
 		"--workspace", pm.workspaceID)
+	_ = cmd.Run()
+}
+
+func (pm *PaneManager) renameTab(surfaceID, title string) {
+	cmuxPath, err := exec.LookPath("cmux")
+	if err != nil {
+		return
+	}
+	cmd := exec.Command(cmuxPath, "rename-tab",
+		"--surface", surfaceID,
+		"--workspace", pm.workspaceID,
+		"--", title)
+	_ = cmd.Run()
+}
+
+func (pm *PaneManager) RenameWorkspace(title string) {
+	cmuxPath, err := exec.LookPath("cmux")
+	if err != nil {
+		return
+	}
+	cmd := exec.Command(cmuxPath, "workspace-action",
+		"--action", "rename",
+		"--workspace", pm.workspaceID,
+		"--title", title)
 	_ = cmd.Run()
 }
 
