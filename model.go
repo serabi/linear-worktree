@@ -2120,9 +2120,9 @@ func (m *Model) buildTab(index, w int) *huh.Form {
 					EchoMode(huh.EchoModePassword).
 					Value(&m.settingsAPIKey),
 				huh.NewInput().
-					Title("Team Keys").
-					Description("Comma-separated team keys (e.g. TSCODE, DHMIG). First key is the default. Find keys in the URL: linear.app/TEAMKEY/...").
-					Placeholder("TSCODE, DHMIG").
+					Title("Team Keys (comma-separated)").
+					Description("Add multiple teams separated by commas. First team is your default. Press T from the issue list to switch between teams.").
+					Placeholder("TSCODE, DHMIG, OTHER").
 					Value(&m.settingsTeamKey),
 			),
 		).WithWidth(w).WithShowHelp(false).WithShowErrors(true)
@@ -2135,14 +2135,14 @@ func (m *Model) buildTab(index, w int) *huh.Form {
 					Placeholder("../worktrees").
 					Value(&m.settingsWtBase),
 				huh.NewInput().
-					Title("Files to Copy").
-					Description("Comma-separated list of files copied from the main repo into each new worktree (e.g. env files, configs).").
-					Placeholder(".env, .envrc").
+					Title("Files to Copy (comma-separated)").
+					Description("Files copied from the main repo into each new worktree. Add multiple separated by commas.").
+					Placeholder(".env, .envrc, .tool-versions").
 					Value(&m.settingsCopyFiles),
 				huh.NewInput().
-					Title("Directories to Copy").
-					Description("Comma-separated list of directories copied into each new worktree (e.g. .claude for Claude Code settings).").
-					Placeholder(".claude").
+					Title("Directories to Copy (comma-separated)").
+					Description("Directories copied into each new worktree. Add multiple separated by commas.").
+					Placeholder(".claude, .config").
 					Value(&m.settingsCopyDirs),
 				huh.NewInput().
 					Title("Branch Prefix").
