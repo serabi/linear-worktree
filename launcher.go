@@ -1,24 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os/exec"
 	"strings"
+	"text/template"
 )
 
 func LaunchClaude(wtPath string, issue Issue, cfg Config) error {
 	identifier := issue.Identifier
 	sessionName := "wt-" + strings.ToLower(identifier)
 
-	// Build prompt with issue context
-	prompt := fmt.Sprintf("You're working on %s: %s", identifier, issue.Title)
-	if issue.Description != "" {
-		desc := issue.Description
-		if len(desc) > 500 {
-			desc = desc[:500] + "..."
-		}
-		prompt += fmt.Sprintf("\n\nDescription:\n%s", desc)
-	}
+	prompt := buildPrompt(issue, cfg)
 
 	// Check if tmux session already exists
 	check := exec.Command("tmux", "has-session", "-t", sessionName)
@@ -51,13 +45,49 @@ func LaunchClaudeWithPrompt(wtPath string, issue Issue, prompt string, cfg Confi
 	return launchTmux(wtPath, sessionName, prompt, cfg)
 }
 
-func launchTmux(wtPath, sessionName, prompt string, cfg Config) error {
-	var shellCmd string
-	if prompt != "" {
-		shellCmd = fmt.Sprintf("%s %s", cfg.ClaudeCommand, shellQuote(prompt))
-	} else {
-		shellCmd = cfg.ClaudeCommand
+func buildPrompt(issue Issue, cfg Config) string {
+	if cfg.PromptTemplate != "" {
+		tmpl, err := template.New("prompt").Parse(cfg.PromptTemplate)
+		if err == nil {
+			var buf bytes.Buffer
+			if err := tmpl.Execute(&buf, issue); err == nil {
+				return buf.String()
+			}
+		}
 	}
+	prompt := fmt.Sprintf("You're working on %s: %s", issue.Identifier, issue.Title)
+	if issue.Description != "" {
+		desc := issue.Description
+		if len(desc) > 500 {
+			desc = desc[:500] + "..."
+		}
+		prompt += fmt.Sprintf("\n\nDescription:\n%s", desc)
+	}
+	return prompt
+}
+
+func buildShellCmd(prompt string, cfg Config) string {
+	parts := []string{cfg.ClaudeCommand}
+	if cfg.ClaudeArgs != "" {
+		parts = append(parts, cfg.ClaudeArgs)
+	}
+	if prompt != "" {
+		parts = append(parts, shellQuote(prompt))
+	}
+	return strings.Join(parts, " ")
+}
+
+func RunPostCreateHook(wtPath string, cfg Config) error {
+	if cfg.PostCreateHook == "" {
+		return nil
+	}
+	cmd := exec.Command("sh", "-c", cfg.PostCreateHook)
+	cmd.Dir = wtPath
+	return cmd.Run()
+}
+
+func launchTmux(wtPath, sessionName, prompt string, cfg Config) error {
+	shellCmd := buildShellCmd(prompt, cfg)
 
 	cmd := exec.Command(
 		"tmux", "new-session",
@@ -70,12 +100,7 @@ func launchTmux(wtPath, sessionName, prompt string, cfg Config) error {
 }
 
 func launchCmux(cmuxPath, wtPath, sessionName, prompt string, cfg Config) error {
-	var shellCmd string
-	if prompt != "" {
-		shellCmd = fmt.Sprintf("%s %s", cfg.ClaudeCommand, shellQuote(prompt))
-	} else {
-		shellCmd = cfg.ClaudeCommand
-	}
+	shellCmd := buildShellCmd(prompt, cfg)
 
 	cmd := exec.Command(
 		cmuxPath, "workspace", "create",
