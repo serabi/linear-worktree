@@ -386,6 +386,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
+	case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
+		if m.showHelp {
+			m.showHelp = false
+		}
+		return m, nil
+
 	case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
 		return m.cycleFilter()
 
