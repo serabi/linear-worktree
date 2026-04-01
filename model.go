@@ -611,7 +611,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case setupCompleteMsg:
 		m.cfg = msg.cfg
 		m.view = viewList
-		m.statusMsg = "Setup complete!"
+		m.statusMsg = "Setup complete! API key stored in OS keychain."
 		cmds := []tea.Cmd{m.fetchIssues(), m.fetchWorktrees()}
 		if m.useCmux {
 			cmds = append(cmds, m.startStatusPoll())
@@ -1048,11 +1048,11 @@ func (m Model) viewSetup() string {
 	b.WriteString("Linear API Key:\n")
 	b.WriteString(m.apiKeyInput.View())
 	b.WriteString("\n\n")
-	b.WriteString("Team Key (e.g. TSCODE):\n")
+	b.WriteString("Team Key (e.g. MYTEAM):\n")
 	b.WriteString(m.teamKeyInput.View())
 	b.WriteString("\n\n")
 	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#888")).Render(
-		"[Tab] next field  [Enter] save  [Esc] cancel",
+		"API key will be stored in the OS keychain.\n[Tab] next field  [Enter] save  [Esc] cancel",
 	))
 	if m.statusMsg != "" {
 		b.WriteString("\n\n")

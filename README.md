@@ -76,9 +76,8 @@ Stored at `~/.config/linear-worktree/config.json`:
 
 ```json
 {
-  "linear_api_key": "lin_api_...",
   "team_id": "...",
-  "team_key": "TSCODE",
+  "team_key": "MYTEAM",
   "worktree_base_dir": "../worktrees",
   "copy_files": [".env", ".envrc"],
   "copy_dirs": [".claude"],
@@ -86,6 +85,14 @@ Stored at `~/.config/linear-worktree/config.json`:
   "branch_prefix": "feature/"
 }
 ```
+
+### Credential Storage
+
+Your Linear API key is stored in the **OS keychain** (macOS Keychain / Linux Secret Service), not in the config file. On first setup, the key is written to the keychain automatically.
+
+If you have an existing config with a plaintext `linear_api_key`, it will be migrated to the keychain on the next run and removed from the file.
+
+**Fallback**: Set `LINEAR_API_KEY` as an environment variable for headless servers or CI where no keychain is available.
 
 ## Architecture
 

@@ -48,12 +48,7 @@ func TestConfigNeedsSetup(t *testing.T) {
 }
 
 func TestSaveAndLoadConfig(t *testing.T) {
-	// Use a temp directory
 	tmpDir := t.TempDir()
-	origConfigPath := configPath
-	// We can't easily override configPath since it's a function,
-	// so we'll test the save/load logic directly with temp files
-
 	path := filepath.Join(tmpDir, "config.json")
 
 	cfg := Config{
@@ -67,7 +62,7 @@ func TestSaveAndLoadConfig(t *testing.T) {
 		BranchPrefix:  "feature/",
 	}
 
-	// Save manually
+	// Save manually (simulating old-style plaintext config)
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		t.Fatalf("marshal config: %v", err)
@@ -88,17 +83,117 @@ func TestSaveAndLoadConfig(t *testing.T) {
 		t.Fatalf("unmarshal config: %v", err)
 	}
 
-	if loadedCfg.LinearAPIKey != cfg.LinearAPIKey {
-		t.Errorf("loaded API key = %q, want %q", loadedCfg.LinearAPIKey, cfg.LinearAPIKey)
-	}
 	if loadedCfg.TeamID != cfg.TeamID {
 		t.Errorf("loaded team ID = %q, want %q", loadedCfg.TeamID, cfg.TeamID)
 	}
 	if loadedCfg.TeamKey != cfg.TeamKey {
 		t.Errorf("loaded team key = %q, want %q", loadedCfg.TeamKey, cfg.TeamKey)
 	}
+}
 
-	_ = origConfigPath
+func TestSaveConfigStoresAPIKeyInKeyring(t *testing.T) {
+	// Clean up keyring before test
+	deleteAPIKey()
+
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "config.json")
+
+	cfg := Config{
+		LinearAPIKey:  "lin_api_keyring_test",
+		TeamID:        "team-abc",
+		TeamKey:       "TEST",
+		ClaudeCommand: "claude",
+		BranchPrefix:  "feature/",
+		WorktreeBase:  "../worktrees",
+	}
+
+	// We can't easily call SaveConfig (it uses configPath()), so test the logic directly:
+	// Store API key in keyring, clear from struct, marshal
+	if err := storeAPIKey(cfg.LinearAPIKey); err != nil {
+		t.Fatalf("storeAPIKey() error: %v", err)
+	}
+	savedKey := cfg.LinearAPIKey
+	cfg.LinearAPIKey = ""
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	os.MkdirAll(filepath.Dir(path), 0700)
+	os.WriteFile(path, data, 0600)
+
+	// Verify: file should NOT contain the API key
+	fileData, _ := os.ReadFile(path)
+	var fileCfg Config
+	json.Unmarshal(fileData, &fileCfg)
+	if fileCfg.LinearAPIKey != "" {
+		t.Errorf("API key should not be in JSON file after save, got %q", fileCfg.LinearAPIKey)
+	}
+
+	// Verify: keyring should have the key
+	key, err := retrieveAPIKey()
+	if err != nil {
+		t.Fatalf("retrieveAPIKey() error: %v", err)
+	}
+	if key != savedKey {
+		t.Errorf("keyring API key = %q, want %q", key, savedKey)
+	}
+
+	// Clean up
+	deleteAPIKey()
+}
+
+func TestAPIKeyMigration(t *testing.T) {
+	// Clean up keyring
+	deleteAPIKey()
+
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "config.json")
+
+	// Write a legacy config with plaintext API key
+	legacyCfg := Config{
+		LinearAPIKey:  "lin_api_legacy",
+		TeamID:        "team-migrate",
+		TeamKey:       "MIG",
+		ClaudeCommand: "claude",
+		BranchPrefix:  "feature/",
+		WorktreeBase:  "../worktrees",
+	}
+	data, _ := json.MarshalIndent(legacyCfg, "", "  ")
+	os.MkdirAll(filepath.Dir(path), 0700)
+	os.WriteFile(path, data, 0600)
+
+	// Simulate migration: read config, find key in file but not keyring, migrate
+	var cfg Config
+	fileData, _ := os.ReadFile(path)
+	json.Unmarshal(fileData, &cfg)
+
+	if cfg.LinearAPIKey == "" {
+		t.Fatal("legacy config should have API key in file")
+	}
+
+	// Migrate
+	migrateAPIKeyToKeyring(&cfg, path)
+
+	// Verify: keyring should have the key
+	key, err := retrieveAPIKey()
+	if err != nil {
+		t.Fatalf("retrieveAPIKey() after migration: %v", err)
+	}
+	if key != "lin_api_legacy" {
+		t.Errorf("migrated key = %q, want %q", key, "lin_api_legacy")
+	}
+
+	// Verify: file should no longer have the key
+	fileData, _ = os.ReadFile(path)
+	var fileCfg Config
+	json.Unmarshal(fileData, &fileCfg)
+	if fileCfg.LinearAPIKey != "" {
+		t.Errorf("file should not contain API key after migration, got %q", fileCfg.LinearAPIKey)
+	}
+
+	// Clean up
+	deleteAPIKey()
 }
 
 func TestValidateClaudeCommand(t *testing.T) {
