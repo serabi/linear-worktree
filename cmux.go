@@ -254,14 +254,17 @@ func (pm *PaneManager) OpenSlotWithPrompt(issue Issue, wtPath, prompt string, cf
 	}
 
 	splitTarget, splitDirection := pm.splitStrategy(slotIdx)
+	debugLog.Printf("slot %d: split %s %s (workspace=%s, tui=%s)", slotIdx, splitTarget, splitDirection, pm.workspaceID, pm.tuiSurface)
 	if splitTarget == "" {
 		return nil, fmt.Errorf("no surface to split from")
 	}
 
 	surfaceID, err := pm.client.SplitSurface(pm.workspaceID, splitTarget, splitDirection)
 	if err != nil {
+		debugLog.Printf("split failed: %v", err)
 		return nil, fmt.Errorf("split pane: %w", err)
 	}
+	debugLog.Printf("split created surface: %s", surfaceID)
 
 	cdCmd := fmt.Sprintf("cd %s\n", shellQuote(wtPath))
 	if err := pm.client.SendText(pm.workspaceID, surfaceID, cdCmd); err != nil {

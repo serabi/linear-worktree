@@ -301,7 +301,7 @@ func (lc *LinearClient) UpdateIssueState(issueID, stateID string) error {
 
 func (lc *LinearClient) GetComments(issueID string) ([]Comment, error) {
 	q := `
-		query($id: ID!) {
+		query($id: String!) {
 			issue(id: $id) {
 				comments(first: 20, orderBy: createdAt) {
 					nodes {
