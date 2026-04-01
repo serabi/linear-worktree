@@ -145,9 +145,22 @@ func (m Model) viewDetail() string {
 
 	header := titleStyle.Render(fmt.Sprintf("Issue: %s", identifier))
 
-	status := statusBarStyle.Render(
-		"d/esc:back  j/k:scroll  m:comment  t:transition  g:open  q:quit",
-	)
+	sortLabel := "o:oldest"
+	if !m.commentSortAsc {
+		sortLabel = "o:newest"
+	}
+	detailKeys := func(prefix string) string {
+		line := fmt.Sprintf("%sd:back  j/k:scroll  m:comment  r:refresh  %s  s:status  g:open  q:quit", prefix, sortLabel)
+		// If the line fits, use one row; otherwise split into two rows
+		if lipgloss.Width(line)+2 <= m.width {
+			return statusBarStyle.Render(line)
+		}
+		row1 := fmt.Sprintf("%sd:back  j/k:scroll  m:comment  r:refresh  %s", prefix, sortLabel)
+		row2 := "s:status  g:open  q:quit"
+		return statusBarStyle.Render(row1 + "\n" + row2)
+	}
+
+	status := detailKeys("")
 
 	if m.loading && m.detailIssue != nil && m.cachedCommentID != m.detailIssue.ID {
 		loadingBox := lipgloss.NewStyle().
@@ -161,9 +174,7 @@ func (m Model) viewDetail() string {
 
 	body := m.detailViewport.View()
 	scrollPct := fmt.Sprintf("%3.f%%", m.detailViewport.ScrollPercent()*100)
-	status = statusBarStyle.Render(
-		fmt.Sprintf("%s | d/esc:back  j/k:scroll  m:comment  t:transition  g:open  q:quit", scrollPct),
-	)
+	status = detailKeys(scrollPct + " | ")
 
 	return appStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, body, status))
 }

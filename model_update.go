@@ -532,13 +532,27 @@ func (m *Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			openBrowser(m.detailIssue.URL)
 		}
 		return m, nil
-	case "t":
+	case "s":
 		if m.detailIssue != nil {
 			m.stateIssue = m.detailIssue
 			if len(m.workflowStates) > 0 {
 				return m, m.showStatePicker()
 			}
 			return m, m.fetchWorkflowStates()
+		}
+		return m, nil
+	case "r":
+		if m.detailIssue != nil {
+			m.loading = true
+			m.loadingLabel = "Loading comments..."
+			return m, m.fetchCommentsCmd(m.detailIssue.ID)
+		}
+		return m, nil
+	case "o":
+		if m.detailIssue != nil {
+			m.commentSortAsc = !m.commentSortAsc
+			contentWidth := m.width - 6
+			m.detailViewport.SetContent(m.buildDetailContent(m.detailIssue, contentWidth))
 		}
 		return m, nil
 	}

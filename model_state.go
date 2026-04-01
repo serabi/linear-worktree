@@ -365,6 +365,7 @@ type Model struct {
 
 	cachedComments  []Comment
 	cachedCommentID string
+	commentSortAsc  bool
 
 	detailViewport viewport.Model
 
