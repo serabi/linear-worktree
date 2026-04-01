@@ -45,9 +45,18 @@ func TestCreateWorktree(t *testing.T) {
 	cfg.CopyFiles = []string{".env"}
 
 	// Change to repo dir for FindRepoRoot
-	origDir, _ := os.Getwd()
-	os.Chdir(repoDir)
-	defer os.Chdir(origDir)
+	origDir, wdErr := os.Getwd()
+	if wdErr != nil {
+		t.Fatalf("getwd: %v", wdErr)
+	}
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(origDir); err != nil {
+			t.Errorf("restore dir: %v", err)
+		}
+	}()
 
 	path, err := CreateWorktree("TEST-123", cfg)
 	if err != nil {
@@ -89,9 +98,18 @@ func TestCreateWorktree(t *testing.T) {
 func TestListWorktrees(t *testing.T) {
 	repoDir := setupTestRepo(t)
 
-	origDir, _ := os.Getwd()
-	os.Chdir(repoDir)
-	defer os.Chdir(origDir)
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(origDir); err != nil {
+			t.Errorf("restore dir: %v", err)
+		}
+	}()
 
 	wts, err := ListWorktrees()
 	if err != nil {
@@ -113,9 +131,18 @@ func TestRemoveWorktree(t *testing.T) {
 		WorktreeBase: worktreeBase,
 	}
 
-	origDir, _ := os.Getwd()
-	os.Chdir(repoDir)
-	defer os.Chdir(origDir)
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(origDir); err != nil {
+			t.Errorf("restore dir: %v", err)
+		}
+	}()
 
 	path, err := CreateWorktree("TEST-999", cfg)
 	if err != nil {
@@ -194,9 +221,18 @@ func TestCreateWorktreePathTraversal(t *testing.T) {
 		WorktreeBase: worktreeBase,
 	}
 
-	origDir, _ := os.Getwd()
-	os.Chdir(repoDir)
-	defer os.Chdir(origDir)
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(origDir); err != nil {
+			t.Errorf("restore dir: %v", err)
+		}
+	}()
 
 	traversalInputs := []string{"../../etc", "../../../tmp/evil", "foo/../../bar"}
 	for _, id := range traversalInputs {
