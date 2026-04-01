@@ -36,8 +36,8 @@ func (m Model) View() string {
 	}
 
 	if m.confirm != nil {
-		yKey := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#22C55E")).Render("y")
-		nKey := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#EF4444")).Render("n")
+		yKey := lipgloss.NewStyle().Bold(true).Foreground(greenColor).Render("y")
+		nKey := lipgloss.NewStyle().Bold(true).Foreground(redColor).Render("n")
 		dialog := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("#7C3AED")).
@@ -96,11 +96,11 @@ func (m Model) viewList() string {
 				scope = m.cfg.TeamKey + " > " + m.projectName
 			}
 			hint = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#EAB308")).
+				Foreground(yellowColor).
 				Render(fmt.Sprintf("No issues assigned to you in %s.\nPress tab or f to see all issues.", scope))
 		} else {
 			hint = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#888")).
+				Foreground(dimColor).
 				Render("No issues found.")
 		}
 		content = lipgloss.Place(m.width-2, listH, lipgloss.Center, lipgloss.Center, hint)

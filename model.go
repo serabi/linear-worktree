@@ -51,6 +51,10 @@ func NewModel(cfg Config) Model {
 
 	h := help.New()
 	h.ShortSeparator = " · "
+	h.Styles.ShortDesc = h.Styles.ShortDesc.Foreground(dimColor)
+	h.Styles.FullDesc = h.Styles.FullDesc.Foreground(dimColor)
+	h.Styles.ShortSeparator = h.Styles.ShortSeparator.Foreground(faintColor)
+	h.Styles.FullSeparator = h.Styles.FullSeparator.Foreground(faintColor)
 
 	vp := viewport.New(38, 20)
 
