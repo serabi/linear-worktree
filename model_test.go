@@ -88,51 +88,54 @@ func TestSettingsInitOnFirstRun(t *testing.T) {
 
 func TestSettingsInitPrePopulated(t *testing.T) {
 	cfg := Config{
-		LinearAPIKey:  "lin_api_test",
-		TeamID:        "team-1",
-		TeamKey:       "TSCODE",
-		WorktreeBase:  "/custom/path",
-		CopyFiles:     []string{".env", ".secret"},
-		CopyDirs:      []string{".claude", ".config"},
-		ClaudeCommand: "claude",
-		BranchPrefix:  "work/",
-		MaxSlots:      4,
-		ClaudeArgs:    "--model sonnet",
+		LinearAPIKey:   "lin_api_test",
+		TeamID:         "team-1",
+		TeamKey:        "TSCODE",
+		WorktreeBase:   "/custom/path",
+		CopyFiles:      []string{".env", ".secret"},
+		CopyDirs:       []string{".claude", ".config"},
+		ClaudeCommand:  "claude",
+		BranchPrefix:   "work/",
+		MaxSlots:       4,
+		ClaudeArgs:     "--model sonnet",
 		PostCreateHook: "npm install",
 		PromptTemplate: "Fix {{.Identifier}}",
 	}
 	m := NewModel(cfg)
 	m.buildSettingsForm()
 
-	if m.settingsAPIKey != "lin_api_test" {
-		t.Errorf("settingsAPIKey = %q, want 'lin_api_test'", m.settingsAPIKey)
+	if m.settingsDraft == nil {
+		t.Fatal("expected settingsDraft to be initialized")
 	}
-	if m.settingsTeamKey != "TSCODE" {
-		t.Errorf("settingsTeamKey = %q, want 'TSCODE'", m.settingsTeamKey)
+	if m.settingsDraft.apiKey != "lin_api_test" {
+		t.Errorf("settingsDraft.apiKey = %q, want 'lin_api_test'", m.settingsDraft.apiKey)
 	}
-	if m.settingsWtBase != "/custom/path" {
-		t.Errorf("settingsWtBase = %q, want '/custom/path'", m.settingsWtBase)
+	if m.settingsDraft.teamKey != "TSCODE" {
+		t.Errorf("settingsDraft.teamKey = %q, want 'TSCODE'", m.settingsDraft.teamKey)
 	}
-	if m.settingsCopyFiles != ".env, .secret" {
-		t.Errorf("settingsCopyFiles = %q, want '.env, .secret'", m.settingsCopyFiles)
+	if m.settingsDraft.wtBase != "/custom/path" {
+		t.Errorf("settingsDraft.wtBase = %q, want '/custom/path'", m.settingsDraft.wtBase)
 	}
-	if m.settingsCopyDirs != ".claude, .config" {
-		t.Errorf("settingsCopyDirs = %q, want '.claude, .config'", m.settingsCopyDirs)
+	if m.settingsDraft.copyFiles != ".env, .secret" {
+		t.Errorf("settingsDraft.copyFiles = %q, want '.env, .secret'", m.settingsDraft.copyFiles)
 	}
-	if m.settingsBranch != "work/" {
-		t.Errorf("settingsBranch = %q, want 'work/'", m.settingsBranch)
+	if m.settingsDraft.copyDirs != ".claude, .config" {
+		t.Errorf("settingsDraft.copyDirs = %q, want '.claude, .config'", m.settingsDraft.copyDirs)
 	}
-	if m.settingsMaxSlots != 4 {
-		t.Errorf("settingsMaxSlots = %d, want 4", m.settingsMaxSlots)
+	if m.settingsDraft.branch != "work/" {
+		t.Errorf("settingsDraft.branch = %q, want 'work/'", m.settingsDraft.branch)
 	}
-	if m.settingsClaudeArgs != "--model sonnet" {
-		t.Errorf("settingsClaudeArgs = %q, want '--model sonnet'", m.settingsClaudeArgs)
+	if m.settingsDraft.maxSlots != 4 {
+		t.Errorf("settingsDraft.maxSlots = %d, want 4", m.settingsDraft.maxSlots)
 	}
-	if m.settingsHook != "npm install" {
-		t.Errorf("settingsHook = %q, want 'npm install'", m.settingsHook)
+	if m.settingsDraft.claudeArgs != "--model sonnet" {
+		t.Errorf("settingsDraft.claudeArgs = %q, want '--model sonnet'", m.settingsDraft.claudeArgs)
 	}
-	if m.settingsPrompt != "Fix {{.Identifier}}" {
-		t.Errorf("settingsPrompt = %q, want 'Fix {{.Identifier}}'", m.settingsPrompt)
+	if m.settingsDraft.hook != "npm install" {
+		t.Errorf("settingsDraft.hook = %q, want 'npm install'", m.settingsDraft.hook)
+	}
+	if m.settingsDraft.prompt != "Fix {{.Identifier}}" {
+		t.Errorf("settingsDraft.prompt = %q, want 'Fix {{.Identifier}}'", m.settingsDraft.prompt)
 	}
 }
 
@@ -174,8 +177,8 @@ func TestSettingsCompletionRequiresCredentials(t *testing.T) {
 	m := NewModel(DefaultConfig())
 	m.buildSettingsForm()
 
-	m.settingsAPIKey = ""
-	m.settingsTeamKey = ""
+	m.settingsDraft.apiKey = ""
+	m.settingsDraft.teamKey = ""
 
 	result, cmd := m.handleSettingsCompleted()
 	model := result.(*Model)
@@ -206,10 +209,10 @@ func TestSettingsCompletionWithCredentials(t *testing.T) {
 	m.buildSettingsForm()
 
 	// Change some settings
-	m.settingsAPIKey = "lin_api_old"
-	m.settingsTeamKey = "TSCODE" // same team key, no resolve needed
-	m.settingsWtBase = "/new/path"
-	m.settingsMaxSlots = 4
+	m.settingsDraft.apiKey = "lin_api_old"
+	m.settingsDraft.teamKey = "TSCODE" // same team key, no resolve needed
+	m.settingsDraft.wtBase = "/new/path"
+	m.settingsDraft.maxSlots = 4
 
 	result, _ := m.handleSettingsCompleted()
 	model := result.(*Model)
@@ -225,6 +228,7 @@ func TestSettingsCompletionWithCredentials(t *testing.T) {
 }
 
 func TestSettingsTeamKeyChangeTriggersResolve(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	cfg := Config{
 		LinearAPIKey:  "lin_api_test",
 		TeamID:        "team-1",
@@ -238,8 +242,8 @@ func TestSettingsTeamKeyChangeTriggersResolve(t *testing.T) {
 	m := NewModel(cfg)
 	m.buildSettingsForm()
 
-	m.settingsAPIKey = "lin_api_test"
-	m.settingsTeamKey = "NEW" // changed!
+	m.settingsDraft.apiKey = "lin_api_test"
+	m.settingsDraft.teamKey = "NEW" // changed!
 
 	_, cmd := m.handleSettingsCompleted()
 	if cmd == nil {
@@ -265,11 +269,11 @@ func TestSettingsDefaultsApplied(t *testing.T) {
 	m.buildSettingsForm()
 
 	// Clear optional fields
-	m.settingsAPIKey = "lin_api_test"
-	m.settingsTeamKey = "TSCODE"
-	m.settingsWtBase = ""
-	m.settingsClaudeCmd = ""
-	m.settingsBranch = ""
+	m.settingsDraft.apiKey = "lin_api_test"
+	m.settingsDraft.teamKey = "TSCODE"
+	m.settingsDraft.wtBase = ""
+	m.settingsDraft.claudeCmd = ""
+	m.settingsDraft.branch = ""
 
 	result, _ := m.handleSettingsCompleted()
 	model := result.(*Model)
@@ -392,7 +396,7 @@ func TestSettingsViewRendersTabBar(t *testing.T) {
 	if !strings.Contains(view, "Credentials") {
 		t.Error("settings view should contain tab names")
 	}
-	if !strings.Contains(view, "Ctrl+S") {
+	if !strings.Contains(view, "Enter: save") {
 		t.Error("settings view should contain help text")
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -318,9 +319,21 @@ const (
 	viewFilterPicker
 	viewSearch
 	viewLinkPicker
-	viewTeamPicker
 )
 
+type settingsDraft struct {
+	apiKey     string
+	teamKey    string
+	wtBase     string
+	copyFiles  string
+	copyDirs   string
+	claudeCmd  string
+	claudeArgs string
+	branch     string
+	maxSlots   int
+	hook       string
+	prompt     string
+}
 
 // --- Model ---
 
@@ -353,8 +366,9 @@ type Model struct {
 	detailViewport viewport.Model
 
 	// Help + spinner
-	help    help.Model
-	keys    keyMap
+	help         help.Model
+	showHelp     bool
+	keys         keyMap
 	spinner      spinner.Model
 	loading      bool
 	loadingLabel string
@@ -368,17 +382,7 @@ type Model struct {
 	settingsTabs      [3]*huh.Form
 	settingsTabNames  [3]string
 	settingsActiveTab int
-	settingsAPIKey    string
-	settingsTeamKey   string
-	settingsWtBase    string
-	settingsCopyFiles string
-	settingsCopyDirs  string
-	settingsClaudeCmd string
-	settingsClaudeArgs string
-	settingsBranch    string
-	settingsMaxSlots  int
-	settingsHook      string
-	settingsPrompt    string
+	settingsDraft     *settingsDraft
 	settingsFirstRun  bool
 
 	// Viewer (authenticated user)
@@ -399,10 +403,10 @@ type Model struct {
 	filterForm *huh.Form
 
 	// Server search
-	searchInput  textinput.Model
-	searching    bool
-	searchTerm   string
-	savedIssues  []Issue // stash regular issues while showing search results
+	searchInput textinput.Model
+	searching   bool
+	searchTerm  string
+	savedIssues []Issue // stash regular issues while showing search results
 
 	// Link picker
 	linkPickerForm *huh.Form
@@ -412,10 +416,6 @@ type Model struct {
 	// Comment prefetch
 	prefetchSeq   int
 	lastListIndex int
-
-	// Team picker
-	teamPickerForm *huh.Form
-	teamSelected   string
 }
 
 // keyMap defines keybindings for the help component.
@@ -433,11 +433,9 @@ type keyMap struct {
 	Search     key.Binding
 	Setup      key.Binding
 	Project    key.Binding
-	State      key.Binding
 	Assign     key.Binding
 	Unassign   key.Binding
 	Links      key.Binding
-	Team       key.Binding
 	Help       key.Binding
 	Quit       key.Binding
 }
@@ -456,12 +454,10 @@ func defaultKeyMap() keyMap {
 		Refresh:    key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
 		Search:     key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 		Setup:      key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "settings")),
-		Project:    key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "project")),
-		State:      key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "transition")),
+		Project:    key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "projects")),
 		Assign:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "assign to me")),
 		Unassign:   key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "unassign")),
 		Links:      key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "links")),
-		Team:       key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "switch team")),
 		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 		Quit:       key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
 	}
@@ -475,8 +471,8 @@ func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Navigate, k.Claude, k.Worktree, k.Close},
 		{k.Comment, k.Detail, k.Filter, k.FilterPick, k.Search},
-		{k.Project, k.State, k.Assign, k.Unassign},
-		{k.Open, k.Links, k.Team, k.Refresh, k.Setup, k.Help, k.Quit},
+		{k.Project, k.Assign, k.Unassign, k.Links},
+		{k.Open, k.Refresh, k.Setup, k.Help, k.Quit},
 	}
 }
 
@@ -763,7 +759,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.list.SetSize(msg.Width-2, msg.Height-4)
+		listHeight := msg.Height - 6 // header + status + help
+		if m.useCmux {
+			listHeight -= 1 // slot bar
+		}
+		if len(m.cfg.Teams) > 1 {
+			listHeight -= 2 // team tab bar
+		}
+		m.list.SetSize(msg.Width-2, listHeight)
 		if m.settingsTabs[0] != nil {
 			w := msg.Width - 4
 			if w < 60 {
@@ -812,8 +815,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSearch(msg)
 		case viewLinkPicker:
 			return m.updateLinkPicker(msg)
-		case viewTeamPicker:
-			return m.updateTeamPicker(msg)
 		default:
 			return m.updateList(msg)
 		}
@@ -931,8 +932,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.cfg = msg.cfg
 		m.flushTeamState()
-		m.statusMsg = fmt.Sprintf("Switched to %s", m.cfg.TeamKey)
-		return m, tea.Batch(m.fetchIssues(), m.fetchProjects(), m.fetchWorkflowStates())
+		m.loading = true
+		m.loadingLabel = fmt.Sprintf("Loading %s...", m.cfg.TeamKey)
+		return m, tea.Batch(m.fetchIssues(), m.fetchProjects(), m.fetchWorkflowStates(), m.spinner.Tick)
 
 	case setupCompleteMsg:
 		m.cfg = msg.cfg
@@ -1035,11 +1037,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		active := m.activeSettingsForm()
 		if active.State == huh.StateCompleted {
-			initCmd := m.rebuildActiveTab()
-			if m.settingsActiveTab < len(m.settingsTabs)-1 {
-				m.settingsActiveTab++
+			for _, tab := range m.settingsTabs {
+				if tab != nil && tab.State == huh.StateNormal {
+					tab.GetFocusedField().Blur()
+				}
 			}
-			return m, tea.Batch(cmd, initCmd)
+			return m.handleSettingsCompleted()
 		} else if active.State == huh.StateAborted {
 			return m, tea.Batch(cmd, m.rebuildActiveTab())
 		}
@@ -1078,16 +1081,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				openBrowser(selected)
 			}
 			return m, nil
-		}
-		return m, cmd
-	}
-	if m.view == viewTeamPicker && m.teamPickerForm != nil {
-		form, cmd := m.teamPickerForm.Update(msg)
-		if f, ok := form.(*huh.Form); ok {
-			m.teamPickerForm = f
-		}
-		if m.teamPickerForm.State == huh.StateCompleted {
-			return m.handleTeamSelected()
 		}
 		return m, cmd
 	}
@@ -1237,7 +1230,7 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.detailViewport.SetContent(m.buildDetailContent(issue, contentWidth))
 		m.detailViewport.GotoTop()
 		if issue.ID != m.cachedCommentID {
-			return m, m.fetchCommentsCmd(issue.ID)
+			return m, tea.Batch(m.fetchCommentsCmd(issue.ID), m.spinner.Tick)
 		}
 		return m, nil
 
@@ -1261,26 +1254,23 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case key.Matches(msg, key.NewBinding(key.WithKeys("1", "2", "3", "4", "5", "6", "7", "8", "9"))):
+		if len(m.cfg.Teams) > 1 {
+			idx := int(msg.String()[0] - '1')
+			if idx < len(m.cfg.Teams) && m.cfg.Teams[idx].Key != m.cfg.TeamKey {
+				return m, m.switchTeamCmd(m.cfg.Teams[idx])
+			}
+		}
+		return m, nil
+
 	case key.Matches(msg, key.NewBinding(key.WithKeys("s"))):
 		return m, m.buildSettingsForm()
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("p"))):
 		return m, m.showProjectPicker()
 
-	case key.Matches(msg, key.NewBinding(key.WithKeys("t"))):
-		issue := m.selectedIssue()
-		if issue == nil {
-			m.statusMsg = "No issue selected"
-			return m, nil
-		}
-		m.stateIssue = issue
-		if len(m.workflowStates) > 0 {
-			return m, m.showStatePicker()
-		}
-		return m, m.fetchWorkflowStates()
-
 	case key.Matches(msg, key.NewBinding(key.WithKeys("?"))):
-		m.help.ShowAll = !m.help.ShowAll
+		m.showHelp = !m.showHelp
 		return m, nil
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("S"))):
@@ -1314,13 +1304,6 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.statusMsg = fmt.Sprintf("Unassigning %s...", issue.Identifier)
 		return m, m.unassignCmd(issue.ID, issue.Identifier)
-
-	case key.Matches(msg, key.NewBinding(key.WithKeys("T"))):
-		if len(m.cfg.Teams) < 2 {
-			m.statusMsg = "Only one team configured (add more in settings)"
-			return m, nil
-		}
-		return m, m.showTeamPicker()
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("l"))):
 		issue := m.selectedIssue()
@@ -1401,6 +1384,15 @@ func (m *Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "g":
 		if m.detailIssue != nil && m.detailIssue.URL != "" {
 			openBrowser(m.detailIssue.URL)
+		}
+		return m, nil
+	case "t":
+		if m.detailIssue != nil {
+			m.stateIssue = m.detailIssue
+			if len(m.workflowStates) > 0 {
+				return m, m.showStatePicker()
+			}
+			return m, m.fetchWorkflowStates()
 		}
 		return m, nil
 	}
@@ -1533,6 +1525,14 @@ func (m *Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.settingsActiveTab = 2
 		return m, nil
 	case "ctrl+s":
+		// Flush all tabs' focused fields -- huh only writes bound
+		// values on blur, not every keystroke. User may have edited
+		// a field on a tab they're no longer viewing.
+		for _, tab := range m.settingsTabs {
+			if tab != nil && tab.State == huh.StateNormal {
+				tab.GetFocusedField().Blur()
+			}
+		}
 		return m.handleSettingsCompleted()
 	case "esc":
 		if m.settingsFirstRun {
@@ -1546,20 +1546,23 @@ func (m *Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	f := m.activeSettingsForm()
+	debugLog.Printf("updateSettings key=%q tab=%d teamKey=%q formState=%d", msg.String(), m.settingsActiveTab, m.settingsDraft.teamKey, f.State)
 	form, cmd := f.Update(msg)
 	if updated, ok := form.(*huh.Form); ok {
 		m.settingsTabs[m.settingsActiveTab] = updated
 	}
+	debugLog.Printf("updateSettings after update: teamKey=%q formState=%d", m.settingsDraft.teamKey, m.activeSettingsForm().State)
 
-	// If the single-group form completed (Enter on last field), advance to next tab
-	// If aborted (Esc on first field), go to previous tab
+	// If the single-group form completed (Enter on last field), save settings
 	active := m.activeSettingsForm()
 	if active.State == huh.StateCompleted {
-		initCmd := m.rebuildActiveTab()
-		if m.settingsActiveTab < len(m.settingsTabs)-1 {
-			m.settingsActiveTab++
+		// Flush all tabs' focused fields before saving
+		for _, tab := range m.settingsTabs {
+			if tab != nil && tab.State == huh.StateNormal {
+				tab.GetFocusedField().Blur()
+			}
 		}
-		return m, tea.Batch(cmd, initCmd)
+		return m.handleSettingsCompleted()
 	} else if active.State == huh.StateAborted {
 		if m.settingsActiveTab > 0 {
 			initCmd := m.rebuildActiveTab()
@@ -1656,8 +1659,6 @@ func (m Model) View() string {
 		return m.viewPicker("Transition State", m.stateForm)
 	case viewLinkPicker:
 		return m.viewPicker("Open Link", m.linkPickerForm)
-	case viewTeamPicker:
-		return m.viewPicker("Switch Team", m.teamPickerForm)
 	case viewFilterPicker:
 		return m.viewPicker("Filter Issues", m.filterForm)
 	case viewSearch:
@@ -1667,14 +1668,75 @@ func (m Model) View() string {
 	}
 }
 
+func (m Model) renderTeamTabBar() string {
+	if len(m.cfg.Teams) <= 1 {
+		return ""
+	}
+	var tabs []string
+	for i, t := range m.cfg.Teams {
+		label := fmt.Sprintf("[%d] %s", i+1, t.Key)
+		if t.Key == m.cfg.TeamKey {
+			tabs = append(tabs, activeTabStyle.Render(label))
+		} else {
+			tabs = append(tabs, inactiveTabStyle.Render(label))
+		}
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
+}
+
 func (m Model) viewList() string {
 	slotBar := m.renderSlotBar()
+	teamBar := m.renderTeamTabBar()
+	if teamBar != "" {
+		teamBar += "\n" // spacing after tab bar
+	}
 	content := m.list.View()
+
+	// Show loading overlay or empty state
+	if m.loading {
+		loadingBox := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#7C3AED")).
+			Padding(1, 3).
+			Render(m.spinner.View() + "  Loading issues...")
+		overlay := lipgloss.Place(m.width, m.height-4, lipgloss.Center, lipgloss.Center, loadingBox)
+		return appStyle.Render(
+			lipgloss.JoinVertical(lipgloss.Left, slotBar, teamBar, overlay),
+		)
+	}
+
+	listHint := ""
+	if len(m.issues) == 0 && m.filter == FilterAssigned {
+		listHint = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#EAB308")).
+			Padding(1, 2).
+			Render(fmt.Sprintf("No issues assigned to you in %s. Press tab or f to see all issues.", m.cfg.TeamKey))
+	} else if len(m.issues) == 0 {
+		listHint = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#888")).
+			Padding(1, 2).
+			Render("No issues found.")
+	}
+
 	status := statusBarStyle.Render(m.statusMsg)
-	helpBar := m.help.View(m.keys)
-	return appStyle.Render(
-		lipgloss.JoinVertical(lipgloss.Left, slotBar, content, status, helpBar),
+	hint := statusBarStyle.Render("? help")
+
+	base := appStyle.Render(
+		lipgloss.JoinVertical(lipgloss.Left, slotBar, teamBar, listHint, content, status, hint),
 	)
+
+	if m.showHelp {
+		m.help.ShowAll = true
+		helpContent := m.help.View(m.keys)
+		helpBox := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#7C3AED")).
+			Padding(1, 2).
+			Render(titleStyle.Render("Keybindings") + "\n\n" + helpContent + "\n\n" + statusBarStyle.Render("Press ? to close"))
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, helpBox)
+	}
+
+	return base
 }
 
 func (m Model) viewDetail() string {
@@ -1684,14 +1746,24 @@ func (m Model) viewDetail() string {
 	}
 
 	header := titleStyle.Render(fmt.Sprintf("Issue: %s", identifier))
+
+	// Show loading indicator while comments are being fetched
+	loadingHint := ""
+	if m.detailIssue != nil && m.cachedCommentID != m.detailIssue.ID {
+		loadingHint = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#7C3AED")).
+			Padding(0, 1).
+			Render(m.spinner.View() + " Loading comments...")
+	}
+
 	body := m.detailViewport.View()
 
 	scrollPct := fmt.Sprintf("%3.f%%", m.detailViewport.ScrollPercent()*100)
 	status := statusBarStyle.Render(fmt.Sprintf(
-		"%s | d/esc:back  j/k:scroll  m:comment  g:open  q:quit", scrollPct))
+		"%s | d/esc:back  j/k:scroll  m:comment  t:transition  g:open  q:quit", scrollPct))
 
 	return appStyle.Render(
-		lipgloss.JoinVertical(lipgloss.Left, header, body, status),
+		lipgloss.JoinVertical(lipgloss.Left, header, loadingHint, body, status),
 	)
 }
 
@@ -1725,30 +1797,68 @@ func (m Model) renderSlotBar() string {
 	return lipgloss.NewStyle().Padding(0, 1).Render(strings.Join(parts, "  "))
 }
 
-func (m Model) buildDetailContent(issue *Issue, width int) string {
-	wrap := func(s string) string {
-		return lipgloss.NewStyle().Width(width).Render(s)
+func (m Model) renderMarkdown(text string, width int) string {
+	renderer, err := glamour.NewTermRenderer(
+		glamour.WithAutoStyle(),
+		glamour.WithWordWrap(width-4),
+	)
+	if err != nil {
+		return lipgloss.NewStyle().Width(width).Render(text)
 	}
+	rendered, err := renderer.Render(text)
+	if err != nil {
+		return lipgloss.NewStyle().Width(width).Render(text)
+	}
+	return strings.TrimRight(rendered, "\n")
+}
+
+func (m Model) buildDetailContent(issue *Issue, width int) string {
 	dim := commentDimStyle.Render
-	sectionHeader := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7C3AED")).Render
 	blockerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444")).Render
 	linkStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#06B6D4")).Render
 
+	divider := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#444")).
+		Width(width).
+		Render(strings.Repeat("─", width))
+
+	sectionDiv := func(title string) string {
+		titleStr := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#7C3AED")).
+			Render(title)
+		return "\n" + titleStr + "\n" + divider + "\n"
+	}
+
 	field := func(label, value string) string {
-		return dim(fmt.Sprintf("%-12s", label)) + value + "\n"
+		l := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#888")).
+			Width(14).
+			Align(lipgloss.Right).
+			Render(label)
+		return l + "  " + value + "\n"
 	}
 
 	var b strings.Builder
 
-	// Header
+	// Header: identifier + state badge with Linear color
 	b.WriteString(issueIdentStyle.Render(issue.Identifier))
 	b.WriteString("  ")
-	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#EAB308")).Render(issue.State.Name))
+	stateColor := "#EAB308"
+	if issue.State.Color != "" {
+		stateColor = issue.State.Color
+	}
+	stateBadge := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(stateColor)).
+		Bold(true).
+		Render(issue.State.Name)
+	b.WriteString(stateBadge)
 	b.WriteString("\n\n")
 	b.WriteString(lipgloss.NewStyle().Bold(true).Width(width).Render(issue.Title))
-	b.WriteString("\n\n")
+	b.WriteString("\n")
 
 	// Metadata
+	b.WriteString(sectionDiv("Details"))
 	if issue.Project != nil {
 		b.WriteString(field("Project", issue.Project.Name))
 	}
@@ -1763,7 +1873,18 @@ func (m Model) buildDetailContent(issue *Issue, width int) string {
 		b.WriteString(field("Assignee", name))
 	}
 	priNames := map[int]string{0: "None", 1: "Urgent", 2: "High", 3: "Medium", 4: "Low"}
-	b.WriteString(field("Priority", priNames[issue.Priority]))
+	priName := priNames[issue.Priority]
+	switch issue.Priority {
+	case 1:
+		priName = urgentStyle.Render(priName)
+	case 2:
+		priName = highStyle.Render(priName)
+	case 3:
+		priName = mediumStyle.Render(priName)
+	case 4:
+		priName = lowStyle.Render(priName)
+	}
+	b.WriteString(field("Priority", priName))
 	if issue.Estimate != nil {
 		b.WriteString(field("Estimate", fmt.Sprintf("%.0f pts", *issue.Estimate)))
 	}
@@ -1784,11 +1905,17 @@ func (m Model) buildDetailContent(issue *Issue, width int) string {
 		b.WriteString(field("Due", dueStr))
 	}
 	if len(issue.Labels.Nodes) > 0 {
-		labels := make([]string, len(issue.Labels.Nodes))
+		pills := make([]string, len(issue.Labels.Nodes))
 		for i, l := range issue.Labels.Nodes {
-			labels[i] = l.Name
+			color := "#888"
+			if l.Color != "" {
+				color = l.Color
+			}
+			pills[i] = lipgloss.NewStyle().
+				Foreground(lipgloss.Color(color)).
+				Render(l.Name)
 		}
-		b.WriteString(field("Labels", wrap(strings.Join(labels, ", "))))
+		b.WriteString(field("Labels", strings.Join(pills, dim(" / "))))
 	}
 	if issue.CreatedAt != "" {
 		b.WriteString(field("Created", relativeTime(issue.CreatedAt)))
@@ -1805,9 +1932,7 @@ func (m Model) buildDetailContent(issue *Issue, width int) string {
 
 	// Relations
 	if len(issue.Relations.Nodes) > 0 {
-		b.WriteString("\n")
-		b.WriteString(sectionHeader("Relations"))
-		b.WriteString("\n")
+		b.WriteString(sectionDiv("Relations"))
 		for _, r := range issue.Relations.Nodes {
 			prefix := r.Type
 			style := dim
@@ -1836,52 +1961,92 @@ func (m Model) buildDetailContent(issue *Issue, width int) string {
 
 	// Sub-issues
 	if len(issue.Children.Nodes) > 0 {
-		b.WriteString("\n")
-		completed := 0
-		for _, child := range issue.Children.Nodes {
-			if child.State.Type == "completed" {
-				completed++
-			}
-		}
-		b.WriteString(sectionHeader(fmt.Sprintf("Sub-issues [%d/%d]", completed, len(issue.Children.Nodes))))
-		b.WriteString("\n")
+		b.WriteString(sectionDiv(fmt.Sprintf("Sub-issues [%d/%d]", countCompleted(issue.Children.Nodes), len(issue.Children.Nodes))))
 		for _, child := range issue.Children.Nodes {
 			icon := statusIcon(child.State.Type)
 			b.WriteString(fmt.Sprintf("  %s %s %s\n", icon, linkStyle(child.Identifier), dim(child.Title)))
 		}
 	}
 
-	// Description
+	// Description (glamour-rendered markdown)
 	if issue.Description != "" {
-		b.WriteString("\n")
-		b.WriteString(sectionHeader("Description"))
-		b.WriteString("\n")
-		b.WriteString(wrap(issue.Description))
+		b.WriteString(sectionDiv("Description"))
+		b.WriteString(m.renderMarkdown(issue.Description, width))
 		b.WriteString("\n")
 	}
 
 	// Comments
 	if m.cachedCommentID == issue.ID && len(m.cachedComments) > 0 {
-		b.WriteString("\n")
-		b.WriteString(sectionHeader(fmt.Sprintf("Comments (%d)", len(m.cachedComments))))
-		b.WriteString("\n")
-		for _, c := range m.cachedComments {
+		b.WriteString(sectionDiv(fmt.Sprintf("Comments (%d)", len(m.cachedComments))))
+
+		commentSep := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#333")).
+			Render(strings.Repeat("─", width-4))
+
+		for i, c := range m.cachedComments {
 			name := c.User.DisplayName
 			if name == "" {
 				name = c.User.Name
 			}
+			ts := relativeTime(c.CreatedAt)
 			isMe := m.viewer != nil && c.User.ID == m.viewer.ID
-			nameStyle := dim
+
+			// Author line: name left, timestamp right
+			nameRendered := dim(name)
 			if isMe {
-				nameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")).Bold(true).Render
+				nameRendered = lipgloss.NewStyle().
+					Foreground(lipgloss.Color("#22C55E")).
+					Bold(true).
+					Render(name)
 			}
-			b.WriteString(fmt.Sprintf("\n%s %s\n", nameStyle(name+":"), dim(relativeTime(c.CreatedAt))))
-			b.WriteString(wrap(c.Body))
-			b.WriteString("\n")
+			tsRendered := dim(ts)
+			gap := width - 4 - lipgloss.Width(name) - lipgloss.Width(ts)
+			if gap < 2 {
+				gap = 2
+			}
+			b.WriteString("  " + nameRendered + strings.Repeat(" ", gap) + tsRendered + "\n")
+
+			// Comment body (glamour-rendered)
+			body := m.renderMarkdown(c.Body, width-4)
+			if isMe {
+				// Left border highlight for own comments
+				lines := strings.Split(body, "\n")
+				for _, line := range lines {
+					b.WriteString(lipgloss.NewStyle().
+						Foreground(lipgloss.Color("#22C55E")).
+						Render("  |") + " " + line + "\n")
+				}
+			} else {
+				for _, line := range strings.Split(body, "\n") {
+					b.WriteString("  " + line + "\n")
+				}
+			}
+
+			if i < len(m.cachedComments)-1 {
+				b.WriteString("  " + commentSep + "\n")
+			}
 		}
 	}
 
 	return b.String()
+}
+
+func countCompleted(children []struct {
+	ID         string `json:"id"`
+	Identifier string `json:"identifier"`
+	Title      string `json:"title"`
+	State      struct {
+		Name string `json:"name"`
+		Type string `json:"type"`
+	} `json:"state"`
+}) int {
+	n := 0
+	for _, c := range children {
+		if c.State.Type == "completed" {
+			n++
+		}
+	}
+	return n
 }
 
 func relativeTime(iso string) string {
@@ -1950,7 +2115,7 @@ func (m Model) viewSettings() string {
 	header := titleStyle.Render("Settings")
 	tabBar := m.renderSettingsTabBar()
 	body := m.activeSettingsForm().View()
-	help := statusBarStyle.Render("1/2/3: switch tab  Enter/Tab: next field  Shift+Tab: prev field  Ctrl+S: save  Esc: cancel")
+	help := statusBarStyle.Render("Tab: next field  Enter: save  1/2/3: switch tab  Esc: cancel")
 	return appStyle.Render(
 		lipgloss.JoinVertical(lipgloss.Left, header, tabBar, "", body, "", help),
 	)
@@ -1980,25 +2145,28 @@ func (m *Model) activeSettingsForm() *huh.Form {
 }
 
 func (m *Model) initSettingsForm() {
-	m.settingsAPIKey = m.cfg.LinearAPIKey
+	draft := &settingsDraft{
+		apiKey:     m.cfg.LinearAPIKey,
+		wtBase:     m.cfg.WorktreeBase,
+		copyFiles:  strings.Join(m.cfg.CopyFiles, ", "),
+		copyDirs:   strings.Join(m.cfg.CopyDirs, ", "),
+		claudeCmd:  m.cfg.ClaudeCommand,
+		claudeArgs: m.cfg.ClaudeArgs,
+		branch:     m.cfg.BranchPrefix,
+		maxSlots:   m.cfg.MaxSlots,
+		hook:       m.cfg.PostCreateHook,
+		prompt:     m.cfg.PromptTemplate,
+	}
 	if len(m.cfg.Teams) > 0 {
 		keys := make([]string, len(m.cfg.Teams))
 		for i, t := range m.cfg.Teams {
 			keys[i] = t.Key
 		}
-		m.settingsTeamKey = strings.Join(keys, ", ")
+		draft.teamKey = strings.Join(keys, ", ")
 	} else {
-		m.settingsTeamKey = m.cfg.TeamKey
+		draft.teamKey = m.cfg.TeamKey
 	}
-	m.settingsWtBase = m.cfg.WorktreeBase
-	m.settingsCopyFiles = strings.Join(m.cfg.CopyFiles, ", ")
-	m.settingsCopyDirs = strings.Join(m.cfg.CopyDirs, ", ")
-	m.settingsClaudeCmd = m.cfg.ClaudeCommand
-	m.settingsClaudeArgs = m.cfg.ClaudeArgs
-	m.settingsBranch = m.cfg.BranchPrefix
-	m.settingsMaxSlots = m.cfg.MaxSlots
-	m.settingsHook = m.cfg.PostCreateHook
-	m.settingsPrompt = m.cfg.PromptTemplate
+	m.settingsDraft = draft
 	m.settingsActiveTab = 0
 
 	w := m.width - 4
@@ -2024,12 +2192,12 @@ func (m *Model) buildTab(index, w int) *huh.Form {
 					Description("Personal API key from Linear Settings > API. Stored securely in your OS keychain, never written to the config file.").
 					Placeholder("lin_api_...").
 					EchoMode(huh.EchoModePassword).
-					Value(&m.settingsAPIKey),
+					Value(&m.settingsDraft.apiKey),
 				huh.NewInput().
-					Title("Team Keys").
-					Description("Comma-separated team keys (e.g. TSCODE, DHMIG). First key is the default. Find keys in the URL: linear.app/TEAMKEY/...").
-					Placeholder("TSCODE, DHMIG").
-					Value(&m.settingsTeamKey),
+					Title("Team Keys (comma-separated)").
+					Description("Add multiple teams separated by commas. First team is your default. Press T from the issue list to switch between teams.").
+					Placeholder("TSCODE, DHMIG, OTHER").
+					Value(&m.settingsDraft.teamKey),
 			),
 		).WithWidth(w).WithShowHelp(false).WithShowErrors(true)
 	case 1:
@@ -2039,22 +2207,22 @@ func (m *Model) buildTab(index, w int) *huh.Form {
 					Title("Worktree Base Directory").
 					Description("Where new git worktrees are created, relative to the repo root. Each issue gets a subdirectory here.").
 					Placeholder("../worktrees").
-					Value(&m.settingsWtBase),
+					Value(&m.settingsDraft.wtBase),
 				huh.NewInput().
-					Title("Files to Copy").
-					Description("Comma-separated list of files copied from the main repo into each new worktree (e.g. env files, configs).").
-					Placeholder(".env, .envrc").
-					Value(&m.settingsCopyFiles),
+					Title("Files to Copy (comma-separated)").
+					Description("Files copied from the main repo into each new worktree. Add multiple separated by commas.").
+					Placeholder(".env, .envrc, .tool-versions").
+					Value(&m.settingsDraft.copyFiles),
 				huh.NewInput().
-					Title("Directories to Copy").
-					Description("Comma-separated list of directories copied into each new worktree (e.g. .claude for Claude Code settings).").
-					Placeholder(".claude").
-					Value(&m.settingsCopyDirs),
+					Title("Directories to Copy (comma-separated)").
+					Description("Directories copied into each new worktree. Add multiple separated by commas.").
+					Placeholder(".claude, .config").
+					Value(&m.settingsDraft.copyDirs),
 				huh.NewInput().
 					Title("Branch Prefix").
 					Description("Prefix added to git branch names when creating worktrees. Issue TSCODE-123 becomes feature/tscode-123.").
 					Placeholder("feature/").
-					Value(&m.settingsBranch),
+					Value(&m.settingsDraft.branch),
 			),
 		).WithWidth(w).WithShowHelp(false).WithShowErrors(true)
 	default:
@@ -2064,7 +2232,7 @@ func (m *Model) buildTab(index, w int) *huh.Form {
 					Title("Claude Command").
 					Description("The command used to launch Claude Code. Change this if claude is installed at a custom path.").
 					Placeholder("claude").
-					Value(&m.settingsClaudeCmd).
+					Value(&m.settingsDraft.claudeCmd).
 					Validate(func(s string) error {
 						s = strings.TrimSpace(s)
 						if s == "" {
@@ -2075,16 +2243,16 @@ func (m *Model) buildTab(index, w int) *huh.Form {
 				huh.NewInput().
 					Title("Claude Args").
 					Description("Extra flags appended to every Claude launch (e.g. --model sonnet, --verbose, --allowedTools).").
-					Value(&m.settingsClaudeArgs),
+					Value(&m.settingsDraft.claudeArgs),
 				huh.NewInput().
 					Title("Post-Create Hook").
 					Description("Shell command that runs inside the worktree directory after creation. Use for setup tasks like installing dependencies.").
 					Placeholder("npm install && direnv allow").
-					Value(&m.settingsHook),
+					Value(&m.settingsDraft.hook),
 				huh.NewText().
 					Title("Prompt Template").
 					Description("Custom prompt sent to Claude on launch. Supports Go template variables: {{.Identifier}}, {{.Title}}, {{.Description}}. Leave empty for the default prompt.").
-					Value(&m.settingsPrompt),
+					Value(&m.settingsDraft.prompt),
 				huh.NewSelect[int]().
 					Title("Max Slots").
 					Description("Maximum number of concurrent Claude sessions in the E-layout. Only applies when running inside cmux.").
@@ -2093,7 +2261,7 @@ func (m *Model) buildTab(index, w int) *huh.Form {
 						huh.NewOption("3 slots", 3),
 						huh.NewOption("4 slots", 4),
 					).
-					Value(&m.settingsMaxSlots),
+					Value(&m.settingsDraft.maxSlots),
 			),
 		).WithWidth(w).WithShowHelp(false).WithShowErrors(true)
 	}
@@ -2146,8 +2314,12 @@ func (m Model) renderSettingsTabBar() string {
 }
 
 func (m *Model) handleSettingsCompleted() (tea.Model, tea.Cmd) {
-	apiKey := strings.TrimSpace(m.settingsAPIKey)
-	teamKeys := splitComma(m.settingsTeamKey)
+	debugLog.Printf("handleSettingsCompleted: settingsAPIKey=%q settingsTeamKey=%q", m.settingsDraft.apiKey, m.settingsDraft.teamKey)
+
+	apiKey := strings.TrimSpace(m.settingsDraft.apiKey)
+	teamKeys := splitComma(m.settingsDraft.teamKey)
+
+	debugLog.Printf("handleSettingsCompleted: parsed teamKeys=%v", teamKeys)
 
 	if apiKey == "" || len(teamKeys) == 0 {
 		m.statusMsg = "API key and at least one team key are required"
@@ -2157,15 +2329,15 @@ func (m *Model) handleSettingsCompleted() (tea.Model, tea.Cmd) {
 
 	newCfg := m.cfg
 	newCfg.LinearAPIKey = apiKey
-	newCfg.WorktreeBase = strings.TrimSpace(m.settingsWtBase)
-	newCfg.CopyFiles = splitComma(m.settingsCopyFiles)
-	newCfg.CopyDirs = splitComma(m.settingsCopyDirs)
-	newCfg.ClaudeCommand = strings.TrimSpace(m.settingsClaudeCmd)
-	newCfg.ClaudeArgs = strings.TrimSpace(m.settingsClaudeArgs)
-	newCfg.BranchPrefix = strings.TrimSpace(m.settingsBranch)
-	newCfg.MaxSlots = m.settingsMaxSlots
-	newCfg.PostCreateHook = strings.TrimSpace(m.settingsHook)
-	newCfg.PromptTemplate = m.settingsPrompt
+	newCfg.WorktreeBase = strings.TrimSpace(m.settingsDraft.wtBase)
+	newCfg.CopyFiles = splitComma(m.settingsDraft.copyFiles)
+	newCfg.CopyDirs = splitComma(m.settingsDraft.copyDirs)
+	newCfg.ClaudeCommand = strings.TrimSpace(m.settingsDraft.claudeCmd)
+	newCfg.ClaudeArgs = strings.TrimSpace(m.settingsDraft.claudeArgs)
+	newCfg.BranchPrefix = strings.TrimSpace(m.settingsDraft.branch)
+	newCfg.MaxSlots = m.settingsDraft.maxSlots
+	newCfg.PostCreateHook = strings.TrimSpace(m.settingsDraft.hook)
+	newCfg.PromptTemplate = m.settingsDraft.prompt
 
 	if newCfg.WorktreeBase == "" {
 		newCfg.WorktreeBase = "../worktrees"
@@ -2184,6 +2356,7 @@ func (m *Model) handleSettingsCompleted() (tea.Model, tea.Cmd) {
 	for i, t := range m.cfg.Teams {
 		oldKeys[i] = t.Key
 	}
+	debugLog.Printf("settings save: teamKeys=%v oldKeys=%v", teamKeys, oldKeys)
 	if strings.Join(teamKeys, ",") != strings.Join(oldKeys, ",") || newCfg.TeamID == "" {
 		m.cfg = newCfg
 		m.statusMsg = "Resolving teams..."
@@ -2300,14 +2473,21 @@ func (m *Model) handleProjectSelected() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) updateListTitle() {
-	title := m.cfg.TeamKey
+	var parts []string
+	// Only show team key in title if there's one team (tab bar handles multi-team)
+	if len(m.cfg.Teams) <= 1 {
+		parts = append(parts, m.cfg.TeamKey)
+	}
 	if m.projectName != "" {
-		title = fmt.Sprintf("%s > %s", m.cfg.TeamKey, m.projectName)
+		parts = append(parts, m.projectName)
 	}
 	if m.filter != FilterAssigned {
-		title = fmt.Sprintf("%s [%s]", title, m.filter.String())
+		parts = append(parts, "["+m.filter.String()+"]")
 	}
-	m.list.Title = title
+	m.list.Title = strings.Join(parts, " > ")
+	if m.list.Title == "" {
+		m.list.Title = "Issues"
+	}
 }
 
 func (m *Model) handleStateSelected() (tea.Model, tea.Cmd) {
@@ -2447,66 +2627,6 @@ func (m *Model) flushTeamState() {
 	m.view = viewList
 	m.list.SetItems(nil)
 	m.updateListTitle()
-}
-
-func (m *Model) showTeamPicker() tea.Cmd {
-	options := make([]huh.Option[string], len(m.cfg.Teams))
-	for i, t := range m.cfg.Teams {
-		label := t.Key
-		if t.Key == m.cfg.TeamKey {
-			label += " (current)"
-		}
-		options[i] = huh.NewOption(label, t.Key)
-	}
-
-	m.teamSelected = ""
-	m.teamPickerForm = huh.NewForm(
-		huh.NewGroup(
-			huh.NewSelect[string]().
-				Title("Switch team").
-				Options(options...).
-				Value(&m.teamSelected),
-		),
-	).WithWidth(50).WithShowHelp(false).WithShowErrors(false)
-	m.view = viewTeamPicker
-	return m.teamPickerForm.Init()
-}
-
-func (m *Model) updateTeamPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.String() == "esc" {
-		m.view = viewList
-		m.teamPickerForm = nil
-		return m, nil
-	}
-
-	form, cmd := m.teamPickerForm.Update(msg)
-	if f, ok := form.(*huh.Form); ok {
-		m.teamPickerForm = f
-	}
-
-	if m.teamPickerForm.State == huh.StateCompleted {
-		return m.handleTeamSelected()
-	}
-
-	return m, cmd
-}
-
-func (m *Model) handleTeamSelected() (tea.Model, tea.Cmd) {
-	selected := m.teamSelected
-	m.teamPickerForm = nil
-	m.view = viewList
-
-	if selected == "" || selected == m.cfg.TeamKey {
-		return m, nil
-	}
-
-	// Find the team entry and switch
-	for _, t := range m.cfg.Teams {
-		if t.Key == selected {
-			return m, m.switchTeamCmd(t)
-		}
-	}
-	return m, nil
 }
 
 func (m Model) switchTeamCmd(team TeamEntry) tea.Cmd {

@@ -2,3 +2,4 @@ linear-worktree
 *.exe
 dist/
 debug.log
+.gocache
