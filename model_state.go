@@ -578,13 +578,19 @@ func (m *Model) updateListTitle() {
 }
 
 func (m *Model) saveTeamState() {
-	if m.cfg.TeamKey == "" {
+	if m.cfg.TeamKey == "" || m.issues == nil {
 		return
 	}
+	issues := make([]Issue, len(m.issues))
+	copy(issues, m.issues)
+	projects := make([]Project, len(m.projects))
+	copy(projects, m.projects)
+	states := make([]WorkflowState, len(m.workflowStates))
+	copy(states, m.workflowStates)
 	m.teamCache[m.cfg.TeamKey] = &teamState{
-		issues:         m.issues,
-		projects:       m.projects,
-		workflowStates: m.workflowStates,
+		issues:         issues,
+		projects:       projects,
+		workflowStates: states,
 		filter:         m.filter,
 		projectFilter:  m.projectFilter,
 		projectName:    m.projectName,
