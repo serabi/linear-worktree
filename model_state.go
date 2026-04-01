@@ -408,6 +408,9 @@ type Model struct {
 
 	prefetchSeq   int
 	lastListIndex int
+
+	// Demo mode
+	demo bool
 }
 
 type keyMap struct {

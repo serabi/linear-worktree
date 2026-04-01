@@ -100,7 +100,11 @@ func (m Model) Init() tea.Cmd {
 		}
 		return tea.Batch(cmds...)
 	}
-
+	if m.demo {
+		return func() tea.Msg {
+			return issuesLoadedMsg{issues: DemoIssues()}
+		}
+	}
 	cmds := []tea.Cmd{
 		m.fetchIssues(),
 		m.fetchWorktrees(),

@@ -71,6 +71,14 @@ func (m Model) postCommentCmd(issueID, body string, identifier string) tea.Cmd {
 }
 
 func (m Model) fetchCommentsCmd(issueID string) tea.Cmd {
+	if m.demo {
+		return func() tea.Msg {
+			if issueID == "demo-1" {
+				return commentsLoadedMsg{issueID: issueID, comments: DemoComments()}
+			}
+			return commentsLoadedMsg{issueID: issueID}
+		}
+	}
 	return func() tea.Msg {
 		client := NewLinearClient(m.cfg.LinearAPIKey)
 		comments, err := client.GetComments(issueID)
