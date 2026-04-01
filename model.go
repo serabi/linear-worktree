@@ -1688,16 +1688,26 @@ func (m Model) renderTeamTabBar() string {
 func (m Model) viewList() string {
 	slotBar := m.renderSlotBar()
 	teamBar := m.renderTeamTabBar()
+	if teamBar != "" {
+		teamBar += "\n" // spacing after tab bar
+	}
 	content := m.list.View()
 
-	// Show loading indicator or empty state hint above the list
-	listHint := ""
+	// Show loading overlay or empty state
 	if m.loading {
-		listHint = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#7C3AED")).
-			Padding(1, 2).
-			Render(m.spinner.View() + " Loading issues...")
-	} else if len(m.issues) == 0 && m.filter == FilterAssigned {
+		loadingBox := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#7C3AED")).
+			Padding(1, 3).
+			Render(m.spinner.View() + "  Loading issues...")
+		overlay := lipgloss.Place(m.width, m.height-4, lipgloss.Center, lipgloss.Center, loadingBox)
+		return appStyle.Render(
+			lipgloss.JoinVertical(lipgloss.Left, slotBar, teamBar, overlay),
+		)
+	}
+
+	listHint := ""
+	if len(m.issues) == 0 && m.filter == FilterAssigned {
 		listHint = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#EAB308")).
 			Padding(1, 2).
