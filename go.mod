@@ -1,4 +1,4 @@
-module github.com/sarahwolff/linear-worktree
+module github.com/serabi/linear-worktree
 
 go 1.24.0
 
