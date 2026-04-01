@@ -99,7 +99,7 @@ type Team struct {
 func NewLinearClient(apiKey string) *LinearClient {
 	return &LinearClient{
 		apiKey: apiKey,
-		client: &http.Client{Timeout: 15 * time.Second},
+		client: &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -200,6 +200,19 @@ func (lc *LinearClient) GetTeamByKey(key string) (*Team, error) {
 	return &result.Teams.Nodes[0], nil
 }
 
+// issueListFields is the lightweight field set for list queries.
+// Only includes fields needed for list rendering and list-level actions (open, assign, comment).
+// Detail-only fields (description, branchName, estimate, labels, cycle, timestamps,
+// parent, relations) are fetched on demand via issueFields.
+const issueListFields = `
+	id identifier title priority url dueDate
+	state { name type color }
+	assignee { id name displayName }
+	project { id name }
+	children { nodes { id identifier title state { name type } } }
+`
+
+// issueFields is the full field set for detail/search queries.
 const issueFields = `
 	id identifier title description priority url branchName
 	estimate dueDate createdAt updatedAt
@@ -224,7 +237,7 @@ const issueQueryTemplate = `
 			after: $after
 			orderBy: updatedAt
 		) {
-			nodes { ` + issueFields + ` }
+			nodes { ` + issueListFields + ` }
 			pageInfo { hasNextPage endCursor }
 		}
 	}`
@@ -239,6 +252,9 @@ var issueFilterByMode = map[FilterMode]string{
 		{ state: { type: { eq: "unstarted" } } }`,
 	FilterInProgress: `
 		{ state: { type: { eq: "started" } } }`,
+	FilterUnassigned: `
+		{ assignee: { null: true } },
+		{ state: { type: { nin: ["completed", "cancelled"] } } }`,
 }
 
 func (lc *LinearClient) GetIssues(teamID string, filter FilterMode, after string) ([]Issue, PageInfo, error) {
@@ -414,7 +430,7 @@ func (lc *LinearClient) GetIssuesByProject(teamID, projectID, after string) ([]I
 				nodes { %s }
 				pageInfo { hasNextPage endCursor }
 			}
-		}`, issueFields)
+		}`, issueListFields)
 
 	var result struct {
 		Issues struct {
@@ -424,6 +440,40 @@ func (lc *LinearClient) GetIssuesByProject(teamID, projectID, after string) ([]I
 	}
 
 	vars := map[string]any{"teamID": teamID, "projectID": projectID}
+	if after != "" {
+		vars["after"] = after
+	}
+
+	err := lc.queryWithVars(q, vars, &result)
+	return result.Issues.Nodes, result.Issues.PageInfo, err
+}
+
+func (lc *LinearClient) GetIssuesWithNoProject(teamID string, filter FilterMode, after string) ([]Issue, PageInfo, error) {
+	q := fmt.Sprintf(`
+		query($teamID: ID!, $after: String) {
+			issues(
+				filter: { and: [
+					{ team: { id: { eq: $teamID } } },
+					{ project: { null: true } },
+					%s
+				] }
+				first: 50
+				after: $after
+				orderBy: updatedAt
+			) {
+				nodes { `+issueListFields+` }
+				pageInfo { hasNextPage endCursor }
+			}
+		}`, issueFilterByMode[filter])
+
+	var result struct {
+		Issues struct {
+			Nodes    []Issue  `json:"nodes"`
+			PageInfo PageInfo `json:"pageInfo"`
+		} `json:"issues"`
+	}
+
+	vars := map[string]any{"teamID": teamID}
 	if after != "" {
 		vars["after"] = after
 	}
@@ -553,23 +603,26 @@ const (
 	FilterAll
 	FilterTodo
 	FilterInProgress
+	FilterUnassigned
 )
 
 func (f FilterMode) String() string {
 	switch f {
 	case FilterAssigned:
-		return "👤 Assigned to me"
+		return "Assigned to me"
 	case FilterAll:
-		return "📋 All"
+		return "All"
 	case FilterTodo:
-		return "○ Todo"
+		return "Todo"
 	case FilterInProgress:
-		return "● In Progress"
+		return "In Progress"
+	case FilterUnassigned:
+		return "Unassigned"
 	default:
 		return "?"
 	}
 }
 
 func (f FilterMode) Next() FilterMode {
-	return (f + 1) % 4
+	return (f + 1) % 5
 }
