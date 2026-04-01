@@ -354,7 +354,8 @@ type Model struct {
 	detailViewport viewport.Model
 
 	// Help + spinner
-	help    help.Model
+	help     help.Model
+	showHelp bool
 	keys    keyMap
 	spinner      spinner.Model
 	loading      bool
@@ -434,11 +435,9 @@ type keyMap struct {
 	Search     key.Binding
 	Setup      key.Binding
 	Project    key.Binding
-	State      key.Binding
 	Assign     key.Binding
 	Unassign   key.Binding
 	Links      key.Binding
-	Team       key.Binding
 	Help       key.Binding
 	Quit       key.Binding
 }
@@ -457,12 +456,10 @@ func defaultKeyMap() keyMap {
 		Refresh:    key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
 		Search:     key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 		Setup:      key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "settings")),
-		Project:    key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "project")),
-		State:      key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "transition")),
+		Project:    key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "teams/projects")),
 		Assign:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "assign to me")),
 		Unassign:   key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "unassign")),
 		Links:      key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "links")),
-		Team:       key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "switch team")),
 		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 		Quit:       key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
 	}
@@ -476,8 +473,8 @@ func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Navigate, k.Claude, k.Worktree, k.Close},
 		{k.Comment, k.Detail, k.Filter, k.FilterPick, k.Search},
-		{k.Project, k.State, k.Assign, k.Unassign},
-		{k.Open, k.Links, k.Team, k.Refresh, k.Setup, k.Help, k.Quit},
+		{k.Project, k.Assign, k.Unassign, k.Links},
+		{k.Open, k.Refresh, k.Setup, k.Help, k.Quit},
 	}
 }
 
@@ -1268,20 +1265,8 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, key.NewBinding(key.WithKeys("p"))):
 		return m, m.showProjectPicker()
 
-	case key.Matches(msg, key.NewBinding(key.WithKeys("t"))):
-		issue := m.selectedIssue()
-		if issue == nil {
-			m.statusMsg = "No issue selected"
-			return m, nil
-		}
-		m.stateIssue = issue
-		if len(m.workflowStates) > 0 {
-			return m, m.showStatePicker()
-		}
-		return m, m.fetchWorkflowStates()
-
 	case key.Matches(msg, key.NewBinding(key.WithKeys("?"))):
-		m.help.ShowAll = !m.help.ShowAll
+		m.showHelp = !m.showHelp
 		return m, nil
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("S"))):
@@ -1316,12 +1301,6 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.statusMsg = fmt.Sprintf("Unassigning %s...", issue.Identifier)
 		return m, m.unassignCmd(issue.ID, issue.Identifier)
 
-	case key.Matches(msg, key.NewBinding(key.WithKeys("T"))):
-		if len(m.cfg.Teams) < 2 {
-			m.statusMsg = "Only one team configured (add more in settings)"
-			return m, nil
-		}
-		return m, m.showTeamPicker()
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("l"))):
 		issue := m.selectedIssue()
@@ -1402,6 +1381,15 @@ func (m *Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "g":
 		if m.detailIssue != nil && m.detailIssue.URL != "" {
 			openBrowser(m.detailIssue.URL)
+		}
+		return m, nil
+	case "t":
+		if m.detailIssue != nil {
+			m.stateIssue = m.detailIssue
+			if len(m.workflowStates) > 0 {
+				return m, m.showStatePicker()
+			}
+			return m, m.fetchWorkflowStates()
 		}
 		return m, nil
 	}
@@ -1672,10 +1660,24 @@ func (m Model) viewList() string {
 	slotBar := m.renderSlotBar()
 	content := m.list.View()
 	status := statusBarStyle.Render(m.statusMsg)
-	helpBar := m.help.View(m.keys)
-	return appStyle.Render(
-		lipgloss.JoinVertical(lipgloss.Left, slotBar, content, status, helpBar),
+	hint := statusBarStyle.Render("? help")
+
+	base := appStyle.Render(
+		lipgloss.JoinVertical(lipgloss.Left, slotBar, content, status, hint),
 	)
+
+	if m.showHelp {
+		m.help.ShowAll = true
+		helpContent := m.help.View(m.keys)
+		helpBox := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#7C3AED")).
+			Padding(1, 2).
+			Render(titleStyle.Render("Keybindings") + "\n\n" + helpContent + "\n\n" + statusBarStyle.Render("Press ? to close"))
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, helpBox)
+	}
+
+	return base
 }
 
 func (m Model) viewDetail() string {
@@ -1689,7 +1691,7 @@ func (m Model) viewDetail() string {
 
 	scrollPct := fmt.Sprintf("%3.f%%", m.detailViewport.ScrollPercent()*100)
 	status := statusBarStyle.Render(fmt.Sprintf(
-		"%s | d/esc:back  j/k:scroll  m:comment  g:open  q:quit", scrollPct))
+		"%s | d/esc:back  j/k:scroll  m:comment  t:transition  g:open  q:quit", scrollPct))
 
 	return appStyle.Render(
 		lipgloss.JoinVertical(lipgloss.Left, header, body, status),
@@ -2318,10 +2320,24 @@ func splitComma(s string) []string {
 // --- Project & State Pickers ---
 
 func (m *Model) showProjectPicker() tea.Cmd {
-	options := []huh.Option[string]{
+	options := []huh.Option[string]{}
+
+	// Teams section (if multiple teams)
+	if len(m.cfg.Teams) > 1 {
+		for _, t := range m.cfg.Teams {
+			label := "Team: " + t.Key
+			if t.Key == m.cfg.TeamKey {
+				label += " (active)"
+			}
+			options = append(options, huh.NewOption(label, "team:"+t.Key))
+		}
+	}
+
+	// Project section
+	options = append(options,
 		huh.NewOption("All issues", ""),
 		huh.NewOption("No project", "none"),
-	}
+	)
 	for _, p := range m.projects {
 		label := p.Name
 		if p.Progress > 0 {
@@ -2330,11 +2346,16 @@ func (m *Model) showProjectPicker() tea.Cmd {
 		options = append(options, huh.NewOption(label, p.ID))
 	}
 
+	title := "Projects"
+	if len(m.cfg.Teams) > 1 {
+		title = "Teams & Projects"
+	}
+
 	m.projectForm = huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Key("project").
-				Title("Filter by project").
+				Title(title).
 				Options(options...),
 		),
 	).WithWidth(50).WithShowHelp(false).WithShowErrors(false)
@@ -2368,6 +2389,19 @@ func (m *Model) handleProjectSelected() (tea.Model, tea.Cmd) {
 	selected := m.projectForm.GetString("project")
 	m.projectForm = nil
 	m.view = viewList
+
+	// Handle team selection (prefixed with "team:")
+	if strings.HasPrefix(selected, "team:") {
+		teamKey := strings.TrimPrefix(selected, "team:")
+		if teamKey != m.cfg.TeamKey {
+			for _, t := range m.cfg.Teams {
+				if t.Key == teamKey {
+					return m, m.switchTeamCmd(t)
+				}
+			}
+		}
+		return m, nil
+	}
 
 	switch selected {
 	case "":
