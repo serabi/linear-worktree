@@ -517,5 +517,160 @@ func TestBuildPromptInvalidTemplate(t *testing.T) {
 	}
 }
 
+func TestDetailCommentSortToggle(t *testing.T) {
+	m := NewModel(Config{TeamKey: "TEST"})
+	m.width = 80
+	m.height = 40
+
+	issue := &Issue{ID: "issue-1", Identifier: "TEST-1", Title: "Test"}
+	m.detailIssue = issue
+	m.view = viewDetail
+	m.cachedCommentID = "issue-1"
+	m.cachedComments = []Comment{
+		{Body: "first comment", User: struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"displayName"`
+			Name        string `json:"name"`
+		}{ID: "u1", Name: "Alice"}, CreatedAt: "2025-01-01T00:00:00Z"},
+		{Body: "second comment", User: struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"displayName"`
+			Name        string `json:"name"`
+		}{ID: "u2", Name: "Bob"}, CreatedAt: "2025-01-02T00:00:00Z"},
+	}
+
+	// Default is descending (commentSortAsc = false)
+	if m.commentSortAsc {
+		t.Fatal("expected default comment sort to be descending")
+	}
+
+	// Press 'o' to toggle
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	model := requireModelPtr(t, result)
+	if !model.commentSortAsc {
+		t.Fatal("expected commentSortAsc to be true after toggle")
+	}
+
+	// Press 'o' again to toggle back
+	result, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	model = requireModelPtr(t, result)
+	if model.commentSortAsc {
+		t.Fatal("expected commentSortAsc to be false after second toggle")
+	}
+}
+
+func TestDetailCommentSortOrder(t *testing.T) {
+	m := NewModel(Config{TeamKey: "TEST"})
+	m.width = 80
+	m.height = 40
+
+	issue := &Issue{ID: "issue-1", Identifier: "TEST-1", Title: "Test"}
+	m.cachedCommentID = "issue-1"
+	m.cachedComments = []Comment{
+		{Body: "AAA_FIRST", User: struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"displayName"`
+			Name        string `json:"name"`
+		}{ID: "u1", Name: "Alice"}, CreatedAt: "2025-01-01T00:00:00Z"},
+		{Body: "ZZZ_LAST", User: struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"displayName"`
+			Name        string `json:"name"`
+		}{ID: "u2", Name: "Bob"}, CreatedAt: "2025-01-02T00:00:00Z"},
+	}
+
+	// Ascending: first comment appears before last
+	m.commentSortAsc = true
+	content := m.buildDetailContent(issue, 70)
+	firstIdx := strings.Index(content, "AAA_FIRST")
+	lastIdx := strings.Index(content, "ZZZ_LAST")
+	if firstIdx < 0 || lastIdx < 0 {
+		t.Fatal("expected both comments in output")
+	}
+	if firstIdx > lastIdx {
+		t.Error("ascending sort: first comment should appear before last")
+	}
+
+	// Descending: last comment appears before first
+	m.commentSortAsc = false
+	content = m.buildDetailContent(issue, 70)
+	firstIdx = strings.Index(content, "AAA_FIRST")
+	lastIdx = strings.Index(content, "ZZZ_LAST")
+	if firstIdx < lastIdx {
+		t.Error("descending sort: last comment should appear before first")
+	}
+}
+
+func TestDetailRefreshComments(t *testing.T) {
+	m := NewModel(Config{TeamKey: "TEST", LinearAPIKey: "test"})
+	m.width = 80
+	m.height = 40
+
+	issue := &Issue{ID: "issue-1", Identifier: "TEST-1", Title: "Test"}
+	m.detailIssue = issue
+	m.view = viewDetail
+
+	// Press 'r' to refresh
+	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	model := requireModelPtr(t, result)
+
+	if !model.loading {
+		t.Fatal("expected loading to be true after refresh")
+	}
+	if model.loadingLabel != "Loading comments..." {
+		t.Fatalf("loadingLabel = %q, want %q", model.loadingLabel, "Loading comments...")
+	}
+	if cmd == nil {
+		t.Fatal("expected a command to fetch comments")
+	}
+}
+
+func TestDetailRefreshNoIssue(t *testing.T) {
+	m := NewModel(Config{TeamKey: "TEST"})
+	m.view = viewDetail
+	m.detailIssue = nil
+
+	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	model := requireModelPtr(t, result)
+
+	if model.loading {
+		t.Fatal("should not be loading when no issue is set")
+	}
+	if cmd != nil {
+		t.Fatal("should not return a command when no issue is set")
+	}
+}
+
+func TestSortPickerEscCancels(t *testing.T) {
+	m := NewModel(Config{TeamKey: "TEST"})
+	m.sortMode = SortCreatedAt
+	initCmd := m.showSortPicker()
+	if initCmd == nil {
+		t.Fatal("expected init cmd")
+	}
+
+	// Process init
+	result, cmd := m.Update(initCmd())
+	model := requireModelPtr(t, result)
+	for cmd != nil {
+		result, cmd = model.Update(cmd())
+		model = requireModelPtr(t, result)
+	}
+
+	// Press Esc
+	result, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = requireModelPtr(t, result)
+
+	if model.view != viewList {
+		t.Fatalf("view = %v, want viewList after esc", model.view)
+	}
+	if model.sortForm != nil {
+		t.Fatal("expected sortForm to be nil after esc")
+	}
+	if model.sortMode != SortCreatedAt {
+		t.Fatalf("sortMode = %v, want SortCreatedAt (unchanged)", model.sortMode)
+	}
+}
+
 // Ensure huh is used (compile-time check)
 var _ = huh.StateCompleted

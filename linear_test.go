@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -487,6 +488,91 @@ func TestLinearClientPagination(t *testing.T) {
 	}
 	if pageInfo2.HasNextPage {
 		t.Error("expected hasNextPage=false on page 2")
+	}
+}
+
+func TestSortModeNext(t *testing.T) {
+	tests := []struct {
+		mode     SortMode
+		expected SortMode
+	}{
+		{SortUpdatedAt, SortCreatedAt},
+		{SortCreatedAt, SortPriority},
+		{SortPriority, SortUpdatedAt},
+	}
+	for _, tt := range tests {
+		result := tt.mode.Next()
+		if result != tt.expected {
+			t.Errorf("SortMode(%d).Next() = %d, want %d", tt.mode, result, tt.expected)
+		}
+	}
+}
+
+func TestSortModeString(t *testing.T) {
+	tests := []struct {
+		mode SortMode
+		want string
+	}{
+		{SortUpdatedAt, "Updated"},
+		{SortCreatedAt, "Created"},
+		{SortPriority, "Priority"},
+		{SortMode(99), "?"},
+	}
+	for _, tt := range tests {
+		if got := tt.mode.String(); got != tt.want {
+			t.Errorf("SortMode(%d).String() = %q, want %q", tt.mode, got, tt.want)
+		}
+	}
+}
+
+func TestGetIssuesWithPrioritySort(t *testing.T) {
+	var capturedVars map[string]any
+	var capturedQuery string
+	server := mockLinearServer(func(query string, vars map[string]any) (int, interface{}) {
+		capturedVars = vars
+		capturedQuery = query
+		return 200, map[string]interface{}{
+			"issues": map[string]interface{}{
+				"nodes":    []interface{}{},
+				"pageInfo": map[string]interface{}{"hasNextPage": false, "endCursor": ""},
+			},
+		}
+	})
+	defer server.Close()
+
+	_, _, err := testClient(server).GetIssues("team-1", FilterAll, SortPriority, "")
+	if err != nil {
+		t.Fatalf("GetIssues() error: %v", err)
+	}
+
+	if capturedVars["sort"] == nil {
+		t.Fatal("expected 'sort' variable for priority sort mode")
+	}
+	if !strings.Contains(capturedQuery, "$sort") {
+		t.Error("expected query to contain $sort variable for priority sort")
+	}
+}
+
+func TestGetIssuesWithCreatedAtSort(t *testing.T) {
+	var capturedQuery string
+	server := mockLinearServer(func(query string, vars map[string]any) (int, interface{}) {
+		capturedQuery = query
+		return 200, map[string]interface{}{
+			"issues": map[string]interface{}{
+				"nodes":    []interface{}{},
+				"pageInfo": map[string]interface{}{"hasNextPage": false, "endCursor": ""},
+			},
+		}
+	})
+	defer server.Close()
+
+	_, _, err := testClient(server).GetIssues("team-1", FilterAll, SortCreatedAt, "")
+	if err != nil {
+		t.Fatalf("GetIssues() error: %v", err)
+	}
+
+	if !strings.Contains(capturedQuery, "createdAt") {
+		t.Error("expected query to contain 'createdAt' orderBy for created sort")
 	}
 }
 
