@@ -187,7 +187,9 @@ func TestAPIKeyMigration(t *testing.T) {
 	}
 
 	// Migrate
-	migrateAPIKeyToKeyring(&cfg, path)
+	if err := migrateAPIKeyToKeyring(&cfg, path); err != nil {
+		t.Fatalf("migrateAPIKeyToKeyring() error: %v", err)
+	}
 
 	// Verify: keyring should have the key
 	key, err := retrieveAPIKey()

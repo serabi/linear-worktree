@@ -75,7 +75,10 @@ func LoadConfig() (Config, error) {
 	// Migrate legacy plaintext key to keychain
 	if cfg.LinearAPIKey != "" {
 		if _, err := retrieveAPIKey(); isKeyringNotFound(err) {
-			migrateAPIKeyToKeyring(&cfg, path)
+			if err := migrateAPIKeyToKeyring(&cfg, path); err != nil {
+				fmt.Fprintf(os.Stderr, "api key migration failed for %s: %v\n", path, err)
+				return cfg, err
+			}
 		}
 	}
 
@@ -93,16 +96,19 @@ func LoadConfig() (Config, error) {
 
 // migrateAPIKeyToKeyring moves a plaintext API key from the config file to the
 // OS keychain and rewrites the config without the key.
-func migrateAPIKeyToKeyring(cfg *Config, path string) {
+func migrateAPIKeyToKeyring(cfg *Config, path string) error {
 	if err := storeAPIKey(cfg.LinearAPIKey); err != nil {
-		return // keychain unavailable, keep in file
+		return nil // keychain unavailable, keep in file
 	}
 	// Rewrite config file without the API key
 	fileCfg := *cfg
 	fileCfg.LinearAPIKey = ""
 	if data, err := json.MarshalIndent(fileCfg, "", "  "); err == nil {
-		_ = os.WriteFile(path, data, 0600)
+		if err := os.WriteFile(path, data, 0600); err != nil {
+			return fmt.Errorf("failed to rewrite migrated config at %s: %w", path, err)
+		}
 	}
+	return nil
 }
 
 func SaveConfig(cfg Config) error {
