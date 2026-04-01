@@ -35,6 +35,9 @@ func TestFilterModeString(t *testing.T) {
 	if s := FilterAll.String(); s == "" {
 		t.Error("FilterAll.String() should not be empty")
 	}
+	if s := FilterUnassigned.String(); s != "∅ Unassigned" {
+		t.Errorf("FilterUnassigned.String() = %q, want %q", s, "∅ Unassigned")
+	}
 }
 
 // mockLinearServer creates a test server that responds to Linear GraphQL queries.
@@ -331,6 +334,34 @@ func TestLinearClientGetIssuesByProject(t *testing.T) {
 	issues, pageInfo, err := testClient(server).GetIssuesByProject("team-1", "proj-1", "")
 	if err != nil {
 		t.Fatalf("GetIssuesByProject() error: %v", err)
+	}
+	if len(issues) != 1 {
+		t.Fatalf("expected 1 issue, got %d", len(issues))
+	}
+	if pageInfo.HasNextPage {
+		t.Error("expected no next page")
+	}
+}
+
+func TestLinearClientGetIssuesWithNoProject(t *testing.T) {
+	server := mockLinearServer(func(query string, vars map[string]any) (int, interface{}) {
+		return 200, map[string]interface{}{
+			"issues": map[string]interface{}{
+				"nodes": []map[string]interface{}{
+					{"id": "issue-1", "identifier": "TEST-1", "title": "No project issue"},
+				},
+				"pageInfo": map[string]interface{}{
+					"hasNextPage": false,
+					"endCursor":   "",
+				},
+			},
+		}
+	})
+	defer server.Close()
+
+	issues, pageInfo, err := testClient(server).GetIssuesWithNoProject("team-1", FilterAll, "")
+	if err != nil {
+		t.Fatalf("GetIssuesWithNoProject() error: %v", err)
 	}
 	if len(issues) != 1 {
 		t.Fatalf("expected 1 issue, got %d", len(issues))

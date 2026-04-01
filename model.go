@@ -34,8 +34,8 @@ var (
 			Padding(0, 1)
 
 	issueIdentStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#06B6D4")).
-				Bold(true)
+			Foreground(lipgloss.Color("#06B6D4")).
+			Bold(true)
 
 	worktreeMarker = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#22C55E"))
@@ -212,6 +212,7 @@ type worktreeCreatedMsg struct {
 	path       string
 	identifier string
 	err        error
+	hookErr    error
 }
 
 type claudeLaunchedMsg struct {
@@ -314,6 +315,7 @@ const (
 	viewPrompt
 	viewProjectPicker
 	viewStatePicker
+	viewFilterPicker
 	viewSearch
 	viewLinkPicker
 	viewTeamPicker
@@ -344,17 +346,18 @@ type Model struct {
 	commentIssue *Issue // which issue we're commenting on
 
 	// Comments cache for detail view
-	cachedComments   []Comment
-	cachedCommentID  string
+	cachedComments  []Comment
+	cachedCommentID string
 
 	// Detail viewport
 	detailViewport viewport.Model
 
 	// Help + spinner
-	help     help.Model
-	keys     keyMap
-	spinner  spinner.Model
-	loading  bool
+	help    help.Model
+	keys    keyMap
+	spinner      spinner.Model
+	loading      bool
+	loadingLabel string
 
 	// Launch menu + prompt editor
 	launchIssue *Issue
@@ -392,8 +395,8 @@ type Model struct {
 	stateForm      *huh.Form
 	stateIssue     *Issue
 
-	// Picker selection values (bound to huh forms via pointer)
-	pickerSelected string
+	// Filter picker
+	filterForm *huh.Form
 
 	// Server search
 	searchInput  textinput.Model
@@ -417,59 +420,61 @@ type Model struct {
 
 // keyMap defines keybindings for the help component.
 type keyMap struct {
-	Navigate key.Binding
-	Claude   key.Binding
-	Worktree key.Binding
-	Close    key.Binding
-	Comment  key.Binding
-	Detail   key.Binding
-	Filter   key.Binding
-	Open     key.Binding
-	Refresh  key.Binding
-	Search   key.Binding
-	Setup    key.Binding
-	Project  key.Binding
-	State    key.Binding
-	Assign   key.Binding
-	Unassign key.Binding
-	Links    key.Binding
-	Team     key.Binding
-	Help     key.Binding
-	Quit     key.Binding
+	Navigate   key.Binding
+	Claude     key.Binding
+	Worktree   key.Binding
+	Close      key.Binding
+	Comment    key.Binding
+	Detail     key.Binding
+	Filter     key.Binding
+	FilterPick key.Binding
+	Open       key.Binding
+	Refresh    key.Binding
+	Search     key.Binding
+	Setup      key.Binding
+	Project    key.Binding
+	State      key.Binding
+	Assign     key.Binding
+	Unassign   key.Binding
+	Links      key.Binding
+	Team       key.Binding
+	Help       key.Binding
+	Quit       key.Binding
 }
 
 func defaultKeyMap() keyMap {
 	return keyMap{
-		Navigate: key.NewBinding(key.WithKeys("j", "k"), key.WithHelp("j/k", "navigate")),
-		Claude:   key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "claude+worktree")),
-		Worktree: key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "worktree")),
-		Close:    key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "close slot")),
-		Comment:  key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "comment")),
-		Detail:   key.NewBinding(key.WithKeys("d", "enter"), key.WithHelp("enter/d", "detail")),
-		Filter:   key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "filter")),
-		Open:     key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "open")),
-		Refresh:  key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
-		Search:   key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
-		Setup:    key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "settings")),
-		Project:  key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "project")),
-		State:    key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "transition")),
-		Assign:   key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "assign to me")),
-		Unassign: key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "unassign")),
-		Links:    key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "links")),
-		Team:     key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "switch team")),
-		Help:     key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
-		Quit:     key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
+		Navigate:   key.NewBinding(key.WithKeys("j", "k"), key.WithHelp("j/k", "navigate")),
+		Claude:     key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "claude+worktree")),
+		Worktree:   key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "worktree")),
+		Close:      key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "close slot")),
+		Comment:    key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "comment")),
+		Detail:     key.NewBinding(key.WithKeys("d", "enter"), key.WithHelp("enter/d", "detail")),
+		Filter:     key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "cycle filter")),
+		FilterPick: key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "filter picker")),
+		Open:       key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "open")),
+		Refresh:    key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
+		Search:     key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
+		Setup:      key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "settings")),
+		Project:    key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "project")),
+		State:      key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "transition")),
+		Assign:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "assign to me")),
+		Unassign:   key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "unassign")),
+		Links:      key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "links")),
+		Team:       key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "switch team")),
+		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+		Quit:       key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
 	}
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Claude, k.Detail, k.Project, k.Filter, k.Setup, k.Help}
+	return []key.Binding{k.Claude, k.Detail, k.Project, k.Filter, k.FilterPick, k.Setup, k.Help}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Navigate, k.Claude, k.Worktree, k.Close},
-		{k.Comment, k.Detail, k.Filter, k.Search},
+		{k.Comment, k.Detail, k.Filter, k.FilterPick, k.Search},
 		{k.Project, k.State, k.Assign, k.Unassign},
 		{k.Open, k.Links, k.Team, k.Refresh, k.Setup, k.Help, k.Quit},
 	}
@@ -591,7 +596,11 @@ func (m Model) Init() tea.Cmd {
 func (m Model) fetchIssues() tea.Cmd {
 	return func() tea.Msg {
 		client := NewLinearClient(m.cfg.LinearAPIKey)
-		if m.projectFilter != nil && *m.projectFilter != "none" {
+		if m.projectFilter != nil {
+			if *m.projectFilter == "none" {
+				issues, _, err := client.GetIssuesWithNoProject(m.cfg.TeamID, m.filter, "")
+				return issuesLoadedMsg{issues: issues, err: err}
+			}
 			issues, _, err := client.GetIssuesByProject(m.cfg.TeamID, *m.projectFilter, "")
 			return issuesLoadedMsg{issues: issues, err: err}
 		}
@@ -797,6 +806,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateProjectPicker(msg)
 		case viewStatePicker:
 			return m.updateStatePicker(msg)
+		case viewFilterPicker:
+			return m.updateFilterPicker(msg)
 		case viewSearch:
 			return m.updateSearch(msg)
 		case viewLinkPicker:
@@ -811,6 +822,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.loading {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
+			m.statusMsg = m.spinner.View() + " " + m.loadingLabel
 			return m, cmd
 		}
 		return m, nil
@@ -823,6 +835,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.issues = msg.issues
 		m.rebuildList()
+		m.updateListTitle()
 		m.statusMsg = m.buildStatusLine()
 		return m, nil
 
@@ -836,7 +849,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = fmt.Sprintf("Error creating worktree: %v", msg.err)
 			return m, nil
 		}
-		m.statusMsg = fmt.Sprintf("Worktree created: %s", msg.path)
+		if msg.hookErr != nil {
+			m.statusMsg = fmt.Sprintf("Worktree created: %s (hook failed: %v)", msg.path, msg.hookErr)
+		} else {
+			m.statusMsg = fmt.Sprintf("Worktree created: %s", msg.path)
+		}
 		return m, m.fetchWorktrees()
 
 	case cmuxSlotOpenedMsg:
@@ -924,9 +941,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.settingsFirstRun = false
 		m.statusMsg = "Settings saved. API key stored in OS keychain."
 		m.updateListTitle()
-		if m.paneManager != nil {
-			m.paneManager = NewPaneManager(m.cmuxClient, m.cfg.MaxSlots)
-		}
+		m.recreatePaneManagerIfNeeded()
 		cmds := []tea.Cmd{m.fetchIssues(), m.fetchWorktrees(), m.fetchViewer(), m.fetchProjects()}
 		if m.useCmux {
 			cmds = append(cmds, m.startStatusPoll())
@@ -1020,14 +1035,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		active := m.activeSettingsForm()
 		if active.State == huh.StateCompleted {
+			initCmd := m.rebuildActiveTab()
 			if m.settingsActiveTab < len(m.settingsTabs)-1 {
-				m.rebuildActiveTab()
 				m.settingsActiveTab++
-			} else {
-				m.rebuildActiveTab()
 			}
+			return m, tea.Batch(cmd, initCmd)
 		} else if active.State == huh.StateAborted {
-			m.rebuildActiveTab()
+			return m, tea.Batch(cmd, m.rebuildActiveTab())
 		}
 		return m, cmd
 	}
@@ -1077,6 +1091,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 	}
+	if m.view == viewFilterPicker && m.filterForm != nil {
+		form, cmd := m.filterForm.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			m.filterForm = f
+		}
+		if m.filterForm.State == huh.StateCompleted {
+			return m.handleFilterSelected()
+		}
+		return m, cmd
+	}
 
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
@@ -1090,13 +1114,17 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
 		m.filter = m.filter.Next()
+		m.updateListTitle()
 		m.loading = true
-		m.statusMsg = m.spinner.View() + " Loading..."
+		m.loadingLabel = "Loading..."
 		return m, tea.Batch(m.fetchIssues(), m.spinner.Tick)
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("f"))):
+		return m, m.showFilterPicker()
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("r"))):
 		m.loading = true
-		m.statusMsg = m.spinner.View() + " Refreshing..."
+		m.loadingLabel = "Refreshing..."
 		return m, tea.Batch(m.fetchIssues(), m.fetchWorktrees(), m.spinner.Tick)
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("c"))):
@@ -1165,8 +1193,8 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if err != nil {
 				return worktreeCreatedMsg{err: err, identifier: issue.Identifier}
 			}
-			RunPostCreateHook(wtPath, m.cfg)
-			return worktreeCreatedMsg{path: wtPath, identifier: issue.Identifier}
+			hookErr := RunPostCreateHook(wtPath, m.cfg)
+			return worktreeCreatedMsg{path: wtPath, identifier: issue.Identifier, hookErr: hookErr}
 		}
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("x"))):
@@ -1482,7 +1510,9 @@ func (m Model) launchWithPromptCmd(issue Issue, prompt string) tea.Cmd {
 		if err != nil {
 			return worktreeCreatedMsg{err: err, identifier: issue.Identifier}
 		}
-		RunPostCreateHook(wtPath, m.cfg)
+		if err := RunPostCreateHook(wtPath, m.cfg); err != nil {
+			debugLog.Printf("post-create hook failed: %v", err)
+		}
 		return launchReadyMsg{issue: issue, wtPath: wtPath, prompt: prompt}
 	}
 }
@@ -1525,23 +1555,22 @@ func (m *Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// If aborted (Esc on first field), go to previous tab
 	active := m.activeSettingsForm()
 	if active.State == huh.StateCompleted {
+		initCmd := m.rebuildActiveTab()
 		if m.settingsActiveTab < len(m.settingsTabs)-1 {
-			m.rebuildActiveTab()
 			m.settingsActiveTab++
-		} else {
-			m.rebuildActiveTab()
 		}
+		return m, tea.Batch(cmd, initCmd)
 	} else if active.State == huh.StateAborted {
 		if m.settingsActiveTab > 0 {
-			m.rebuildActiveTab()
+			initCmd := m.rebuildActiveTab()
 			m.settingsActiveTab--
+			return m, tea.Batch(cmd, initCmd)
 		} else if !m.settingsFirstRun {
 			m.settingsTabs = [3]*huh.Form{}
 			m.view = viewList
 			return m, nil
-		} else {
-			m.rebuildActiveTab()
 		}
+		return m, tea.Batch(cmd, m.rebuildActiveTab())
 	}
 
 	return m, cmd
@@ -1629,6 +1658,8 @@ func (m Model) View() string {
 		return m.viewPicker("Open Link", m.linkPickerForm)
 	case viewTeamPicker:
 		return m.viewPicker("Switch Team", m.teamPickerForm)
+	case viewFilterPicker:
+		return m.viewPicker("Filter Issues", m.filterForm)
 	case viewSearch:
 		return m.viewSearchInput()
 	default:
@@ -2077,13 +2108,28 @@ func (m *Model) buildSettingsForm() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-func (m *Model) rebuildActiveTab() {
+func (m *Model) recreatePaneManagerIfNeeded() {
+	if m.paneManager == nil {
+		return
+	}
+	if m.paneManager.maxSlots == m.cfg.MaxSlots {
+		return
+	}
+	for i, slot := range m.paneManager.Slots() {
+		if slot != nil {
+			_ = m.paneManager.CloseSlot(i)
+		}
+	}
+	m.paneManager = NewPaneManager(m.cmuxClient, m.cfg.MaxSlots)
+}
+
+func (m *Model) rebuildActiveTab() tea.Cmd {
 	w := m.width - 4
 	if w < 60 {
 		w = 60
 	}
 	m.settingsTabs[m.settingsActiveTab] = m.buildTab(m.settingsActiveTab, w)
-	m.settingsTabs[m.settingsActiveTab].Init()
+	return m.settingsTabs[m.settingsActiveTab].Init()
 }
 
 func (m Model) renderSettingsTabBar() string {
@@ -2155,9 +2201,7 @@ func (m *Model) handleSettingsCompleted() (tea.Model, tea.Cmd) {
 	m.settingsFirstRun = false
 	m.statusMsg = "Settings saved."
 	m.updateListTitle()
-	if m.paneManager != nil {
-		m.paneManager = NewPaneManager(m.cmuxClient, m.cfg.MaxSlots)
-	}
+	m.recreatePaneManagerIfNeeded()
 	cmds := []tea.Cmd{m.fetchIssues(), m.fetchWorktrees()}
 	if m.useCmux {
 		cmds = append(cmds, m.startStatusPoll())
@@ -2192,13 +2236,12 @@ func (m *Model) showProjectPicker() tea.Cmd {
 		options = append(options, huh.NewOption(label, p.ID))
 	}
 
-	m.pickerSelected = ""
 	m.projectForm = huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
+				Key("project").
 				Title("Filter by project").
-				Options(options...).
-				Value(&m.pickerSelected),
+				Options(options...),
 		),
 	).WithWidth(50).WithShowHelp(false).WithShowErrors(false)
 	m.view = viewProjectPicker
@@ -2215,13 +2258,12 @@ func (m *Model) showStatePicker() tea.Cmd {
 		options = append(options, huh.NewOption(label, s.ID))
 	}
 
-	m.pickerSelected = ""
 	m.stateForm = huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
+				Key("state").
 				Title(fmt.Sprintf("Transition %s", m.stateIssue.Identifier)).
-				Options(options...).
-				Value(&m.pickerSelected),
+				Options(options...),
 		),
 	).WithWidth(50).WithShowHelp(false).WithShowErrors(false)
 	m.view = viewStatePicker
@@ -2229,7 +2271,7 @@ func (m *Model) showStatePicker() tea.Cmd {
 }
 
 func (m *Model) handleProjectSelected() (tea.Model, tea.Cmd) {
-	selected := m.pickerSelected
+	selected := m.projectForm.GetString("project")
 	m.projectForm = nil
 	m.view = viewList
 
@@ -2253,20 +2295,23 @@ func (m *Model) handleProjectSelected() (tea.Model, tea.Cmd) {
 
 	m.updateListTitle()
 	m.loading = true
-	m.statusMsg = m.spinner.View() + " Loading..."
+	m.loadingLabel = "Loading..."
 	return m, tea.Batch(m.fetchIssues(), m.spinner.Tick)
 }
 
 func (m *Model) updateListTitle() {
+	title := m.cfg.TeamKey
 	if m.projectName != "" {
-		m.list.Title = fmt.Sprintf("%s > %s", m.cfg.TeamKey, m.projectName)
-	} else {
-		m.list.Title = m.cfg.TeamKey
+		title = fmt.Sprintf("%s > %s", m.cfg.TeamKey, m.projectName)
 	}
+	if m.filter != FilterAssigned {
+		title = fmt.Sprintf("%s [%s]", title, m.filter.String())
+	}
+	m.list.Title = title
 }
 
 func (m *Model) handleStateSelected() (tea.Model, tea.Cmd) {
-	selected := m.pickerSelected
+	selected := m.stateForm.GetString("state")
 	issue := m.stateIssue
 	m.stateForm = nil
 	m.stateIssue = nil
@@ -2277,6 +2322,72 @@ func (m *Model) handleStateSelected() (tea.Model, tea.Cmd) {
 		return m, m.changeStateCmd(issue.ID, selected, issue.Identifier)
 	}
 	return m, nil
+}
+
+func (m *Model) showFilterPicker() tea.Cmd {
+	options := []huh.Option[string]{
+		huh.NewOption("Assigned to me", "assigned"),
+		huh.NewOption("All issues", "all"),
+		huh.NewOption("Todo", "todo"),
+		huh.NewOption("In Progress", "inprogress"),
+		huh.NewOption("Unassigned", "unassigned"),
+	}
+
+	m.filterForm = huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Key("filter").
+				Title("Filter issues").
+				Options(options...),
+		),
+	).WithWidth(50).WithShowHelp(false).WithShowErrors(false)
+	m.view = viewFilterPicker
+	return m.filterForm.Init()
+}
+
+func (m *Model) handleFilterSelected() (tea.Model, tea.Cmd) {
+	selected := m.filterForm.GetString("filter")
+	m.filterForm = nil
+	m.view = viewList
+
+	switch selected {
+	case "assigned":
+		m.filter = FilterAssigned
+	case "all":
+		m.filter = FilterAll
+	case "todo":
+		m.filter = FilterTodo
+	case "inprogress":
+		m.filter = FilterInProgress
+	case "unassigned":
+		m.filter = FilterUnassigned
+	default:
+		return m, nil
+	}
+
+	m.updateListTitle()
+	m.loading = true
+	m.loadingLabel = "Loading..."
+	return m, tea.Batch(m.fetchIssues(), m.spinner.Tick)
+}
+
+func (m *Model) updateFilterPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "esc" {
+		m.view = viewList
+		m.filterForm = nil
+		return m, nil
+	}
+
+	form, cmd := m.filterForm.Update(msg)
+	if f, ok := form.(*huh.Form); ok {
+		m.filterForm = f
+	}
+
+	if m.filterForm.State == huh.StateCompleted {
+		return m.handleFilterSelected()
+	}
+
+	return m, cmd
 }
 
 func (m *Model) updateProjectPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -2481,7 +2592,7 @@ func (m *Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.view = viewList
 		m.loading = true
-		m.statusMsg = m.spinner.View() + " Searching..."
+		m.loadingLabel = "Searching..."
 		return m, tea.Batch(m.searchIssuesCmd(term), m.spinner.Tick)
 	}
 
