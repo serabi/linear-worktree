@@ -42,13 +42,6 @@ var (
 	mediumStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#EAB308"))
 	lowStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#3B82F6"))
 
-	detailStyle = lipgloss.NewStyle().
-			BorderLeft(true).
-			BorderStyle(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("#444")).
-			Padding(1, 2).
-			Width(40)
-
 	setupStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("#7C3AED")).
@@ -195,6 +188,7 @@ const (
 	viewList viewMode = iota
 	viewSetup
 	viewComment
+	viewDetail
 )
 
 type setupField int
@@ -214,7 +208,7 @@ type Model struct {
 	filter           FilterMode
 	view             viewMode
 	statusMsg        string
-	showDetail       bool
+	detailIssue      *Issue
 	width            int
 	height           int
 
@@ -476,11 +470,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		listWidth := msg.Width - 2
-		if m.showDetail {
-			listWidth = msg.Width - 42
+		m.list.SetSize(msg.Width-2, msg.Height-4)
+		if m.view == viewDetail && m.detailIssue != nil {
+			contentWidth := msg.Width - 6
+			m.detailViewport.Width = contentWidth
+			m.detailViewport.Height = msg.Height - 6
+			m.detailViewport.SetContent(m.buildDetailContent(m.detailIssue, contentWidth))
 		}
-		m.list.SetSize(listWidth, msg.Height-4)
 		return m, nil
 
 	case tea.KeyMsg:
@@ -496,6 +492,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSetup(msg)
 		case viewComment:
 			return m.updateComment(msg)
+		case viewDetail:
+			return m.updateDetail(msg)
 		default:
 			return m.updateList(msg)
 		}
@@ -587,6 +585,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.cachedComments = msg.comments
 			m.cachedCommentID = msg.issueID
+			if m.view == viewDetail && m.detailIssue != nil && m.detailIssue.ID == msg.issueID {
+				contentWidth := m.width - 6
+				m.detailViewport.SetContent(m.buildDetailContent(m.detailIssue, contentWidth))
+			}
 		}
 		return m, nil
 
@@ -691,17 +693,20 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("d"))):
-		m.showDetail = !m.showDetail
-		listWidth := m.width - 2
-		if m.showDetail {
-			listWidth = m.width - 42
+		issue := m.selectedIssue()
+		if issue == nil {
+			m.statusMsg = "No issue selected"
+			return m, nil
 		}
-		m.list.SetSize(listWidth, m.height-4)
-		// Load comments for the selected issue
-		if m.showDetail {
-			if issue := m.selectedIssue(); issue != nil {
-				return m, m.fetchCommentsCmd(issue.ID)
-			}
+		m.view = viewDetail
+		m.detailIssue = issue
+		contentWidth := m.width - 6
+		m.detailViewport.Width = contentWidth
+		m.detailViewport.Height = m.height - 6
+		m.detailViewport.SetContent(m.buildDetailContent(issue, contentWidth))
+		m.detailViewport.GotoTop()
+		if issue.ID != m.cachedCommentID {
+			return m, m.fetchCommentsCmd(issue.ID)
 		}
 		return m, nil
 
@@ -736,14 +741,6 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
-
-	// When highlight changes and detail panel is open, fetch comments
-	if m.showDetail {
-		if issue := m.selectedIssue(); issue != nil && issue.ID != m.cachedCommentID {
-			return m, m.fetchCommentsCmd(issue.ID)
-		}
-	}
-
 	return m, cmd
 }
 
@@ -770,6 +767,35 @@ func (m *Model) updateComment(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	m.commentInput, cmd = m.commentInput.Update(msg)
+	return m, cmd
+}
+
+func (m *Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "d":
+		m.view = viewList
+		m.detailIssue = nil
+		return m, nil
+	case "ctrl+c", "q":
+		return m, tea.Quit
+	case "m":
+		if m.detailIssue != nil {
+			m.view = viewComment
+			m.commentIssue = m.detailIssue
+			m.commentInput.SetValue("")
+			m.commentInput.Focus()
+			m.statusMsg = fmt.Sprintf("Comment on %s (Enter to post, Esc to cancel)", m.detailIssue.Identifier)
+			return m, textinput.Blink
+		}
+		return m, nil
+	case "g":
+		if m.detailIssue != nil && m.detailIssue.URL != "" {
+			openBrowser(m.detailIssue.URL)
+		}
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.detailViewport, cmd = m.detailViewport.Update(msg)
 	return m, cmd
 }
 
@@ -876,29 +902,38 @@ func (m Model) View() string {
 		return m.viewSetup()
 	case viewComment:
 		return m.viewComment()
+	case viewDetail:
+		return m.viewDetail()
 	default:
 		return m.viewList()
 	}
 }
 
 func (m Model) viewList() string {
-	// Slot indicators at top
 	slotBar := m.renderSlotBar()
-
-	listView := m.list.View()
-
-	var content string
-	if m.showDetail {
-		detail := m.renderDetail()
-		content = lipgloss.JoinHorizontal(lipgloss.Top, listView, detail)
-	} else {
-		content = listView
-	}
-
+	content := m.list.View()
 	status := statusBarStyle.Render(m.statusMsg)
 	helpBar := m.help.View(m.keys)
 	return appStyle.Render(
 		lipgloss.JoinVertical(lipgloss.Left, slotBar, content, status, helpBar),
+	)
+}
+
+func (m Model) viewDetail() string {
+	identifier := ""
+	if m.detailIssue != nil {
+		identifier = m.detailIssue.Identifier
+	}
+
+	header := titleStyle.Render(fmt.Sprintf("Issue: %s", identifier))
+	body := m.detailViewport.View()
+
+	scrollPct := fmt.Sprintf("%3.f%%", m.detailViewport.ScrollPercent()*100)
+	status := statusBarStyle.Render(fmt.Sprintf(
+		"%s | d/esc:back  j/k:scroll  m:comment  g:open  q:quit", scrollPct))
+
+	return appStyle.Render(
+		lipgloss.JoinVertical(lipgloss.Left, header, body, status),
 	)
 }
 
@@ -932,10 +967,9 @@ func (m Model) renderSlotBar() string {
 	return lipgloss.NewStyle().Padding(0, 1).Render(strings.Join(parts, "  "))
 }
 
-func (m Model) renderDetail() string {
-	issue := m.selectedIssue()
-	if issue == nil {
-		return detailStyle.Render("No issue selected")
+func (m Model) buildDetailContent(issue *Issue, width int) string {
+	wrap := func(s string) string {
+		return lipgloss.NewStyle().Width(width).Render(s)
 	}
 
 	var b strings.Builder
@@ -943,7 +977,7 @@ func (m Model) renderDetail() string {
 	b.WriteString("  ")
 	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#EAB308")).Render(issue.State.Name))
 	b.WriteString("\n\n")
-	b.WriteString(lipgloss.NewStyle().Bold(true).Render(issue.Title))
+	b.WriteString(lipgloss.NewStyle().Bold(true).Width(width).Render(issue.Title))
 	b.WriteString("\n\n")
 
 	if issue.Assignee != nil {
@@ -965,53 +999,44 @@ func (m Model) renderDetail() string {
 			labels[i] = l.Name
 		}
 		b.WriteString(commentDimStyle.Render("Labels: "))
-		b.WriteString(strings.Join(labels, ", ") + "\n")
+		b.WriteString(wrap(strings.Join(labels, ", ")) + "\n")
 	}
 
 	if issue.BranchName != "" {
 		b.WriteString(commentDimStyle.Render("Branch: "))
-		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")).Render(issue.BranchName) + "\n")
+		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")).Width(width).Render(issue.BranchName) + "\n")
+	}
+
+	if issue.URL != "" {
+		b.WriteString(commentDimStyle.Render("URL: "))
+		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#06B6D4")).Width(width).Render(issue.URL) + "\n")
 	}
 
 	if issue.Description != "" {
-		desc := issue.Description
-		if len(desc) > 400 {
-			desc = desc[:400] + "..."
-		}
 		b.WriteString("\n")
-		b.WriteString(commentDimStyle.Render("Description:\n"))
-		b.WriteString(desc + "\n")
+		b.WriteString(commentDimStyle.Render("Description:"))
+		b.WriteString("\n")
+		b.WriteString(wrap(issue.Description))
+		b.WriteString("\n")
 	}
 
-	// Show comments
 	if m.cachedCommentID == issue.ID && len(m.cachedComments) > 0 {
 		b.WriteString("\n")
 		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7C3AED")).Render("Comments"))
 		b.WriteString("\n")
-		// Show last 5 comments
-		start := 0
-		if len(m.cachedComments) > 5 {
-			start = len(m.cachedComments) - 5
-		}
-		for _, c := range m.cachedComments[start:] {
+		for _, c := range m.cachedComments {
 			name := c.User.DisplayName
 			if name == "" {
 				name = c.User.Name
 			}
 			b.WriteString(commentDimStyle.Render(fmt.Sprintf("\n%s:", name)))
 			b.WriteString("\n")
-			body := c.Body
-			if len(body) > 200 {
-				body = body[:200] + "..."
-			}
-			b.WriteString(body + "\n")
+			b.WriteString(wrap(c.Body))
+			b.WriteString("\n")
 		}
 	}
 
-	m.detailViewport.Width = 38
-	m.detailViewport.Height = m.height - 8
-	m.detailViewport.SetContent(b.String())
-	return detailStyle.Height(m.height - 6).Render(m.detailViewport.View())
+	return b.String()
 }
 
 func (m Model) viewComment() string {
