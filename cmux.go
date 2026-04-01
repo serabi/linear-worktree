@@ -224,11 +224,24 @@ func NewPaneManager(client *CmuxClient, maxSlots int) *PaneManager {
 }
 
 // OpenSlot adds an issue to the next available slot, creates a pane, and launches Claude.
+// Uses the default prompt built from the issue.
 func (pm *PaneManager) OpenSlot(issue Issue, wtPath string, cfg Config) (*WorktreeSlot, error) {
+	prompt := fmt.Sprintf("You're working on %s: %s", issue.Identifier, issue.Title)
+	if issue.Description != "" {
+		desc := issue.Description
+		if len(desc) > 500 {
+			desc = desc[:500] + "..."
+		}
+		prompt += fmt.Sprintf("\n\nDescription:\n%s", desc)
+	}
+	return pm.OpenSlotWithPrompt(issue, wtPath, prompt, cfg)
+}
+
+// OpenSlotWithPrompt adds an issue to the next available slot with a custom prompt.
+func (pm *PaneManager) OpenSlotWithPrompt(issue Issue, wtPath, prompt string, cfg Config) (*WorktreeSlot, error) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	// Find first empty slot
 	slotIdx := -1
 	for i := 0; i < pm.maxSlots; i++ {
 		if pm.slots[i] == nil {
@@ -250,29 +263,24 @@ func (pm *PaneManager) OpenSlot(issue Issue, wtPath string, cfg Config) (*Worktr
 		return nil, fmt.Errorf("split pane: %w", err)
 	}
 
-	// Build Claude prompt
-	prompt := fmt.Sprintf("You're working on %s: %s", issue.Identifier, issue.Title)
-	if issue.Description != "" {
-		desc := issue.Description
-		if len(desc) > 500 {
-			desc = desc[:500] + "..."
-		}
-		prompt += fmt.Sprintf("\n\nDescription:\n%s", desc)
-	}
-
-	// Send cd + claude command to the new pane.
-	// If either SendText fails, close the surface to avoid orphaned panes.
 	cdCmd := fmt.Sprintf("cd %s\n", shellQuote(wtPath))
 	if err := pm.client.SendText(pm.workspaceID, surfaceID, cdCmd); err != nil {
 		_ = pm.client.CloseSurface(pm.workspaceID, surfaceID)
 		return nil, fmt.Errorf("send cd: %w", err)
 	}
 
-	claudeCmd := fmt.Sprintf("%s %s\n", cfg.ClaudeCommand, shellQuote(prompt))
+	var claudeCmd string
+	if prompt != "" {
+		claudeCmd = fmt.Sprintf("%s %s\n", cfg.ClaudeCommand, shellQuote(prompt))
+	} else {
+		claudeCmd = cfg.ClaudeCommand + "\n"
+	}
 	if err := pm.client.SendText(pm.workspaceID, surfaceID, claudeCmd); err != nil {
 		_ = pm.client.CloseSurface(pm.workspaceID, surfaceID)
 		return nil, fmt.Errorf("send claude: %w", err)
 	}
+
+	pm.logEvent("info", fmt.Sprintf("Launched Claude for %s", issue.Identifier))
 
 	slot := &WorktreeSlot{
 		Index:        slotIdx,
@@ -450,6 +458,16 @@ func (pm *PaneManager) clearStatusPill(slot *WorktreeSlot) {
 		return
 	}
 	cmd := exec.Command(cmuxPath, "clear-status", statusPillKey(slot),
+		"--workspace", pm.workspaceID)
+	_ = cmd.Run()
+}
+
+func (pm *PaneManager) logEvent(level, message string) {
+	cmuxPath, err := exec.LookPath("cmux")
+	if err != nil {
+		return
+	}
+	cmd := exec.Command(cmuxPath, "log", "--level", level, message,
 		"--workspace", pm.workspaceID)
 	_ = cmd.Run()
 }

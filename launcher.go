@@ -36,8 +36,28 @@ func LaunchClaude(wtPath string, issue Issue, cfg Config) error {
 	return launchTmux(wtPath, sessionName, prompt, cfg)
 }
 
+func LaunchClaudeWithPrompt(wtPath string, issue Issue, prompt string, cfg Config) error {
+	sessionName := "wt-" + strings.ToLower(issue.Identifier)
+
+	check := exec.Command("tmux", "has-session", "-t", sessionName)
+	if check.Run() == nil {
+		return exec.Command("tmux", "switch-client", "-t", sessionName).Run()
+	}
+
+	if cmuxPath, err := exec.LookPath("cmux"); err == nil {
+		return launchCmux(cmuxPath, wtPath, sessionName, prompt, cfg)
+	}
+
+	return launchTmux(wtPath, sessionName, prompt, cfg)
+}
+
 func launchTmux(wtPath, sessionName, prompt string, cfg Config) error {
-	shellCmd := fmt.Sprintf("%s %s", cfg.ClaudeCommand, shellQuote(prompt))
+	var shellCmd string
+	if prompt != "" {
+		shellCmd = fmt.Sprintf("%s %s", cfg.ClaudeCommand, shellQuote(prompt))
+	} else {
+		shellCmd = cfg.ClaudeCommand
+	}
 
 	cmd := exec.Command(
 		"tmux", "new-session",
@@ -50,7 +70,12 @@ func launchTmux(wtPath, sessionName, prompt string, cfg Config) error {
 }
 
 func launchCmux(cmuxPath, wtPath, sessionName, prompt string, cfg Config) error {
-	shellCmd := fmt.Sprintf("%s %s", cfg.ClaudeCommand, shellQuote(prompt))
+	var shellCmd string
+	if prompt != "" {
+		shellCmd = fmt.Sprintf("%s %s", cfg.ClaudeCommand, shellQuote(prompt))
+	} else {
+		shellCmd = cfg.ClaudeCommand
+	}
 
 	cmd := exec.Command(
 		cmuxPath, "workspace", "create",

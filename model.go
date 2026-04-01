@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -99,6 +100,17 @@ func (i issueItem) FilterValue() string {
 	return i.issue.Identifier + " " + i.issue.Title
 }
 
+// launchOption represents a menu item in the launch picker.
+type launchOption struct {
+	action string
+	title  string
+	desc   string
+}
+
+func (l launchOption) Title() string       { return l.title }
+func (l launchOption) Description() string { return l.desc }
+func (l launchOption) FilterValue() string { return l.title }
+
 func statusIcon(stateType string) string {
 	switch stateType {
 	case "backlog":
@@ -178,6 +190,12 @@ type commentsLoadedMsg struct {
 	err      error
 }
 
+type launchReadyMsg struct {
+	issue  Issue
+	wtPath string
+	prompt string
+}
+
 type statusPollMsg struct{}
 
 // --- App state ---
@@ -189,6 +207,8 @@ const (
 	viewSetup
 	viewComment
 	viewDetail
+	viewLaunch
+	viewPrompt
 )
 
 type setupField int
@@ -233,6 +253,11 @@ type Model struct {
 	keys     keyMap
 	spinner  spinner.Model
 	loading  bool
+
+	// Launch menu + prompt editor
+	launchIssue *Issue
+	launchList  list.Model
+	promptArea  textarea.Model
 
 	// Setup fields
 	setupField   setupField
@@ -334,6 +359,21 @@ func NewModel(cfg Config) Model {
 	// Detail viewport
 	vp := viewport.New(38, 20)
 
+	// Launch menu list
+	launchDelegate := list.NewDefaultDelegate()
+	launchDelegate.SetHeight(2)
+	launchDelegate.SetSpacing(0)
+	ll := list.New([]list.Item{}, launchDelegate, 0, 0)
+	ll.SetShowHelp(false)
+	ll.SetShowStatusBar(false)
+	ll.SetFilteringEnabled(false)
+	ll.Styles.Title = titleStyle
+
+	// Prompt textarea
+	ta := textarea.New()
+	ta.Placeholder = "Enter your prompt for Claude..."
+	ta.CharLimit = 10000
+
 	m := Model{
 		cfg:              cfg,
 		list:             l,
@@ -350,6 +390,8 @@ func NewModel(cfg Config) Model {
 		keys:             defaultKeyMap(),
 		spinner:          sp,
 		detailViewport:   vp,
+		launchList:       ll,
+		promptArea:       ta,
 	}
 	if cfg.NeedsSetup() {
 		m.view = viewSetup
@@ -394,17 +436,6 @@ func (m Model) fetchWorktrees() tea.Cmd {
 	}
 }
 
-func (m Model) createWorktreeCmd(issue Issue) tea.Cmd {
-	return func() tea.Msg {
-		path, err := CreateWorktree(issue.Identifier, m.cfg)
-		return worktreeCreatedMsg{
-			path:       path,
-			identifier: issue.Identifier,
-			err:        err,
-		}
-	}
-}
-
 func (m Model) launchClaudeCmd(wtPath string, issue Issue) tea.Cmd {
 	return func() tea.Msg {
 		err := LaunchClaude(wtPath, issue, m.cfg)
@@ -412,13 +443,20 @@ func (m Model) launchClaudeCmd(wtPath string, issue Issue) tea.Cmd {
 	}
 }
 
-func (m Model) openCmuxSlotCmd(issue Issue, wtPath string) tea.Cmd {
+func (m Model) openCmuxSlotWithPromptCmd(issue Issue, wtPath, prompt string) tea.Cmd {
 	return func() tea.Msg {
-		slot, err := m.paneManager.OpenSlot(issue, wtPath, m.cfg)
+		slot, err := m.paneManager.OpenSlotWithPrompt(issue, wtPath, prompt, m.cfg)
 		if err != nil {
 			return cmuxSlotOpenedMsg{err: err, identifier: issue.Identifier}
 		}
 		return cmuxSlotOpenedMsg{slotIdx: slot.Index, identifier: issue.Identifier}
+	}
+}
+
+func (m Model) launchClaudeWithPromptCmd(wtPath string, issue Issue, prompt string) tea.Cmd {
+	return func() tea.Msg {
+		err := LaunchClaudeWithPrompt(wtPath, issue, prompt, m.cfg)
+		return claudeLaunchedMsg{identifier: issue.Identifier, err: err}
 	}
 }
 
@@ -494,6 +532,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateComment(msg)
 		case viewDetail:
 			return m.updateDetail(msg)
+		case viewLaunch:
+			return m.updateLaunch(msg)
+		case viewPrompt:
+			return m.updatePrompt(msg)
 		default:
 			return m.updateList(msg)
 		}
@@ -528,21 +570,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.statusMsg = fmt.Sprintf("Worktree created: %s", msg.path)
-		// Find the issue for launching
-		for _, issue := range m.issues {
-			if issue.Identifier == msg.identifier {
-				if m.useCmux && m.paneManager != nil {
-					return m, tea.Batch(
-						m.fetchWorktrees(),
-						m.openCmuxSlotCmd(issue, msg.path),
-					)
-				}
-				return m, tea.Batch(
-					m.fetchWorktrees(),
-					m.launchClaudeCmd(msg.path, issue),
-				)
-			}
-		}
 		return m, m.fetchWorktrees()
 
 	case cmuxSlotOpenedMsg:
@@ -591,6 +618,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+
+	case launchReadyMsg:
+		if m.useCmux && m.paneManager != nil {
+			return m, m.openCmuxSlotWithPromptCmd(msg.issue, msg.wtPath, msg.prompt)
+		}
+		return m, m.launchClaudeWithPromptCmd(msg.wtPath, msg.issue, msg.prompt)
 
 	case statusPollMsg:
 		if m.paneManager != nil {
@@ -643,13 +676,53 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.statusMsg = "No issue selected"
 			return m, nil
 		}
-		// Check slot capacity for cmux mode
-		if m.useCmux && m.paneManager != nil && m.paneManager.ActiveCount() >= m.cfg.MaxSlots {
-			m.statusMsg = fmt.Sprintf("All %d slots full. Close a worktree first (x key).", m.cfg.MaxSlots)
-			return m, nil
+		m.launchIssue = issue
+		m.view = viewLaunch
+
+		// Build menu options dynamically
+		items := []list.Item{
+			launchOption{"prompt", "Launch with prompt", "Edit prompt before launching Claude"},
+			launchOption{"blank", "Launch blank session", "Open Claude with no initial message"},
 		}
-		m.statusMsg = fmt.Sprintf("Creating worktree + launching Claude for %s...", issue.Identifier)
-		return m, m.createWorktreeCmd(*issue)
+
+		// Check for active slot
+		if m.paneManager != nil {
+			for _, slot := range m.paneManager.Slots() {
+				if slot != nil && slot.Issue.Identifier == issue.Identifier {
+					items = append([]list.Item{
+						launchOption{"resume", "Resume existing session", fmt.Sprintf("Focus slot %d (%s)", slot.Index+1, slot.Status.Label())},
+					}, items...)
+					break
+				}
+			}
+		}
+
+		// Check for existing worktree without active slot
+		branch := m.cfg.BranchPrefix + strings.ToLower(issue.Identifier)
+		hasWorktree := m.worktreeBranches[branch]
+		hasSlot := false
+		if m.paneManager != nil {
+			for _, slot := range m.paneManager.Slots() {
+				if slot != nil && slot.Issue.Identifier == issue.Identifier {
+					hasSlot = true
+					break
+				}
+			}
+		}
+		if hasWorktree && !hasSlot {
+			items = append(items, launchOption{"existing", "Open in existing worktree", "Launch Claude in the existing worktree"})
+		}
+
+		m.launchList.Title = fmt.Sprintf("Launch Claude for %s", issue.Identifier)
+		m.launchList.SetItems(items)
+		m.launchList.SetSize(m.width-4, len(items)*3+4)
+
+		// Pre-fetch comments for prompt building
+		var cmd tea.Cmd
+		if issue.ID != m.cachedCommentID {
+			cmd = m.fetchCommentsCmd(issue.ID)
+		}
+		return m, cmd
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("w"))):
 		issue := m.selectedIssue()
@@ -799,6 +872,104 @@ func (m *Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m *Model) updateLaunch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.view = viewList
+		m.launchIssue = nil
+		return m, nil
+	case "ctrl+c", "q":
+		return m, tea.Quit
+	case "enter":
+		item := m.launchList.SelectedItem()
+		if item == nil {
+			return m, nil
+		}
+		opt := item.(launchOption)
+		switch opt.action {
+		case "prompt":
+			includeComments := m.cachedCommentID == m.launchIssue.ID
+			m.promptArea.SetValue(m.buildLaunchPrompt(m.launchIssue, includeComments))
+			m.promptArea.SetWidth(m.width - 4)
+			m.promptArea.SetHeight(m.height - 6)
+			m.promptArea.Focus()
+			m.view = viewPrompt
+			return m, textarea.Blink
+		case "blank":
+			m.view = viewList
+			issue := *m.launchIssue
+			m.launchIssue = nil
+			m.statusMsg = fmt.Sprintf("Launching Claude for %s...", issue.Identifier)
+			return m, m.launchWithPromptCmd(issue, "")
+		case "resume":
+			m.view = viewList
+			m.launchIssue = nil
+			m.statusMsg = "Focused existing session"
+			return m, nil
+		case "existing":
+			m.view = viewList
+			issue := *m.launchIssue
+			m.launchIssue = nil
+			m.statusMsg = fmt.Sprintf("Launching Claude for %s...", issue.Identifier)
+			return m, m.launchWithPromptCmd(issue, "")
+		}
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.launchList, cmd = m.launchList.Update(msg)
+	return m, cmd
+}
+
+func (m *Model) updatePrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.view = viewLaunch
+		return m, nil
+	case "ctrl+c":
+		return m, tea.Quit
+	case "ctrl+s":
+		prompt := m.promptArea.Value()
+		m.view = viewList
+		issue := *m.launchIssue
+		m.launchIssue = nil
+		m.statusMsg = fmt.Sprintf("Launching Claude for %s...", issue.Identifier)
+		return m, m.launchWithPromptCmd(issue, prompt)
+	}
+	var cmd tea.Cmd
+	m.promptArea, cmd = m.promptArea.Update(msg)
+	return m, cmd
+}
+
+func (m Model) buildLaunchPrompt(issue *Issue, includeComments bool) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "You're working on %s: %s", issue.Identifier, issue.Title)
+	if issue.Description != "" {
+		b.WriteString("\n\n")
+		b.WriteString(issue.Description)
+	}
+	if includeComments && len(m.cachedComments) > 0 {
+		b.WriteString("\n\n---\nComments:\n")
+		for _, c := range m.cachedComments {
+			name := c.User.DisplayName
+			if name == "" {
+				name = c.User.Name
+			}
+			fmt.Fprintf(&b, "\n@%s:\n%s\n", name, c.Body)
+		}
+	}
+	return b.String()
+}
+
+func (m Model) launchWithPromptCmd(issue Issue, prompt string) tea.Cmd {
+	return func() tea.Msg {
+		wtPath, err := CreateWorktree(issue.Identifier, m.cfg)
+		if err != nil {
+			return worktreeCreatedMsg{err: err, identifier: issue.Identifier}
+		}
+		return launchReadyMsg{issue: issue, wtPath: wtPath, prompt: prompt}
+	}
+}
+
 func (m *Model) updateSetup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
@@ -904,6 +1075,10 @@ func (m Model) View() string {
 		return m.viewComment()
 	case viewDetail:
 		return m.viewDetail()
+	case viewLaunch:
+		return m.viewLaunch()
+	case viewPrompt:
+		return m.viewPrompt()
 	default:
 		return m.viewList()
 	}
@@ -1037,6 +1212,26 @@ func (m Model) buildDetailContent(issue *Issue, width int) string {
 	}
 
 	return b.String()
+}
+
+func (m Model) viewLaunch() string {
+	return appStyle.Render(
+		lipgloss.JoinVertical(lipgloss.Left,
+			m.launchList.View(),
+		),
+	)
+}
+
+func (m Model) viewPrompt() string {
+	identifier := ""
+	if m.launchIssue != nil {
+		identifier = m.launchIssue.Identifier
+	}
+	header := titleStyle.Render(fmt.Sprintf("Prompt for %s", identifier))
+	status := statusBarStyle.Render("ctrl+s:launch  esc:back")
+	return appStyle.Render(
+		lipgloss.JoinVertical(lipgloss.Left, header, m.promptArea.View(), status),
+	)
 }
 
 func (m Model) viewComment() string {
