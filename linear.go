@@ -205,11 +205,16 @@ func (lc *LinearClient) GetTeamByKey(key string) (*Team, error) {
 // Detail-only fields (description, branchName, estimate, labels, cycle, timestamps,
 // parent, relations) are fetched on demand via issueFields.
 const issueListFields = `
-	id identifier title priority url dueDate
+	id identifier title description priority url branchName dueDate
+	estimate createdAt updatedAt
 	state { name type color }
 	assignee { id name displayName }
+	labels { nodes { name color } }
+	cycle { id name }
 	project { id name }
+	parent { id identifier title }
 	children { nodes { id identifier title state { name type } } }
+	relations { nodes { type relatedIssue { id identifier title } } }
 `
 
 // issueFields is the full field set for detail/search queries.
