@@ -113,15 +113,6 @@ func (m Model) fetchProjects() tea.Cmd {
 	}
 }
 
-func (m Model) fetchLabels() tea.Cmd {
-	teamID := m.cfg.TeamID
-	return func() tea.Msg {
-		client := NewLinearClient(m.cfg.LinearAPIKey)
-		labels, err := client.GetLabels(teamID)
-		return labelsLoadedMsg{teamID: teamID, labels: labels, err: err}
-	}
-}
-
 func (m Model) fetchWorkflowStates() tea.Cmd {
 	return func() tea.Msg {
 		client := NewLinearClient(m.cfg.LinearAPIKey)

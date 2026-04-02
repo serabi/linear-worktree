@@ -302,12 +302,6 @@ type projectsLoadedMsg struct {
 	err      error
 }
 
-type labelsLoadedMsg struct {
-	teamID string
-	labels []IssueLabel
-	err    error
-}
-
 type statesLoadedMsg struct {
 	states []WorkflowState
 	err    error
@@ -613,7 +607,7 @@ func (m Model) buildStatusLine() string {
 		scope += " > " + m.projectName
 	}
 	if m.labelName != "" {
-		scope += " > " + m.labelName
+		scope += " > label:" + m.labelName
 	}
 	parts = append(parts, scope)
 	parts = append(parts, fmt.Sprintf("%d issues", len(m.issues)))
@@ -634,7 +628,7 @@ func (m *Model) updateListTitle() {
 		parts = append(parts, m.projectName)
 	}
 	if m.labelName != "" {
-		parts = append(parts, m.labelName)
+		parts = append(parts, "label:"+m.labelName)
 	}
 	parts = append(parts, "["+m.filter.String()+"]")
 	m.list.Title = strings.Join(parts, " > ")

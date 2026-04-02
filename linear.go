@@ -50,6 +50,7 @@ type Issue struct {
 	} `json:"assignee"`
 	Labels struct {
 		Nodes []struct {
+			ID    string `json:"id"`
 			Name  string `json:"name"`
 			Color string `json:"color"`
 		} `json:"nodes"`
@@ -209,7 +210,7 @@ const issueListFields = `
 	estimate createdAt updatedAt
 	state { name type color }
 	assignee { id name displayName }
-	labels { nodes { name color } }
+	labels { nodes { id name color } }
 	cycle { id name }
 	project { id name }
 	parent { id identifier title }
@@ -223,7 +224,7 @@ const issueFields = `
 	estimate dueDate createdAt updatedAt
 	state { name type color }
 	assignee { id name displayName }
-	labels { nodes { name color } }
+	labels { nodes { id name color } }
 	cycle { id name }
 	project { id name }
 	parent { id identifier title }

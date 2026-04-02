@@ -37,11 +37,25 @@ func (m *Model) showProjectPicker() tea.Cmd {
 	return m.projectForm.Init()
 }
 
+func (m *Model) deriveLabelsFromIssues() []IssueLabel {
+	seen := make(map[string]bool)
+	var labels []IssueLabel
+	for _, issue := range m.issues {
+		for _, l := range issue.Labels.Nodes {
+			if l.ID != "" && !seen[l.ID] {
+				seen[l.ID] = true
+				labels = append(labels, IssueLabel{ID: l.ID, Name: l.Name, Color: l.Color})
+			}
+		}
+	}
+	return labels
+}
+
 func (m *Model) showLabelPicker() tea.Cmd {
-	if m.labels == nil {
-		m.loading = true
-		m.loadingLabel = "Loading labels..."
-		return tea.Batch(m.fetchLabels(), m.spinner.Tick)
+	m.labels = m.deriveLabelsFromIssues()
+	if len(m.labels) == 0 {
+		m.statusMsg = "No labels found on current issues"
+		return nil
 	}
 	options := []huh.Option[string]{
 		huh.NewOption("All issues", ""),

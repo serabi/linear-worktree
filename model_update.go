@@ -274,21 +274,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case labelsLoadedMsg:
-		m.loading = false
-		if msg.teamID != m.cfg.TeamID {
-			return m, nil
-		}
-		if msg.err != nil {
-			m.statusMsg = fmt.Sprintf("Error loading labels: %v", msg.err)
-			return m, nil
-		}
-		m.labels = msg.labels
-		if m.view == viewList {
-			return m, m.showLabelPicker()
-		}
-		return m, nil
-
 	case statesLoadedMsg:
 		if msg.err != nil {
 			m.statusMsg = fmt.Sprintf("Error loading states: %v", msg.err)

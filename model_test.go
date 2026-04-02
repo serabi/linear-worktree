@@ -821,10 +821,20 @@ func TestTeamSwitchPreservesState(t *testing.T) {
 
 func TestLabelPickerEnterCompletesSelection(t *testing.T) {
 	m := NewModel(Config{TeamKey: "TEST"})
-	m.labels = []IssueLabel{
-		{ID: "label-1", Name: "Bug", Color: "#ff0000"},
-		{ID: "label-2", Name: "Feature", Color: "#00ff00"},
+	m.issues = []Issue{
+		{Identifier: "TEST-1", Title: "Issue 1"},
+		{Identifier: "TEST-2", Title: "Issue 2"},
 	}
+	m.issues[0].Labels.Nodes = []struct {
+		ID    string `json:"id"`
+		Name  string `json:"name"`
+		Color string `json:"color"`
+	}{{"label-1", "Bug", "#ff0000"}}
+	m.issues[1].Labels.Nodes = []struct {
+		ID    string `json:"id"`
+		Name  string `json:"name"`
+		Color string `json:"color"`
+	}{{"label-2", "Feature", "#00ff00"}}
 	initCmd := m.showLabelPicker()
 	if initCmd == nil {
 		t.Fatal("expected label picker init cmd")
@@ -872,9 +882,12 @@ func TestLabelPickerEnterCompletesSelection(t *testing.T) {
 
 func TestLabelPickerEscCancels(t *testing.T) {
 	m := NewModel(Config{TeamKey: "TEST"})
-	m.labels = []IssueLabel{
-		{ID: "label-1", Name: "Bug", Color: "#ff0000"},
-	}
+	m.issues = []Issue{{Identifier: "TEST-1", Title: "Issue 1"}}
+	m.issues[0].Labels.Nodes = []struct {
+		ID    string `json:"id"`
+		Name  string `json:"name"`
+		Color string `json:"color"`
+	}{{"label-1", "Bug", "#ff0000"}}
 	labelID := "label-1"
 	m.labelFilter = &labelID
 	m.labelName = "Bug"
@@ -964,46 +977,6 @@ func TestTeamSwitchPreservesLabelState(t *testing.T) {
 	}
 }
 
-func TestLateLabelsLoadedMsgIgnoredAfterTeamSwitch(t *testing.T) {
-	cfg := Config{
-		LinearAPIKey:  "lin_api_test",
-		TeamID:        "team-1",
-		TeamKey:       "TEAM1",
-		Teams:         []TeamEntry{{ID: "team-1", Key: "TEAM1"}, {ID: "team-2", Key: "TEAM2"}},
-		ClaudeCommand: "claude",
-		WorktreeBase:  "../worktrees",
-		BranchPrefix:  "feature/",
-		MaxSlots:      3,
-	}
-	m := NewModel(cfg)
-	m.width = 120
-	m.height = 40
-
-	// Set up TEAM1 state
-	m.issues = []Issue{{Identifier: "TEAM1-1", Title: "Issue"}}
-	m.labels = []IssueLabel{{ID: "lbl-1", Name: "Bug", Color: "#ff0000"}}
-	m.rebuildList()
-
-	// Switch to TEAM2
-	switchedCfg := cfg
-	switchedCfg.TeamID = "team-2"
-	switchedCfg.TeamKey = "TEAM2"
-	result, _ := m.Update(teamSwitchedMsg{cfg: switchedCfg})
-	mp := result.(Model)
-
-	// Simulate late labelsLoadedMsg from TEAM1 arriving after switch
-	staleLabels := []IssueLabel{
-		{ID: "stale-1", Name: "Stale", Color: "#999999"},
-	}
-	result2, _ := mp.Update(labelsLoadedMsg{teamID: "team-1", labels: staleLabels})
-	mp2 := result2.(Model)
-
-	// TEAM2's labels should NOT be overwritten by stale TEAM1 response
-	if len(mp2.labels) != 0 {
-		t.Errorf("expected 0 labels for TEAM2, got %d (stale msg leaked)", len(mp2.labels))
-	}
-}
-
 func TestListTitleIncludesLabelName(t *testing.T) {
 	m := NewModel(Config{TeamKey: "TEST", Teams: []TeamEntry{{ID: "t1", Key: "TEST"}}})
 	m.filter = FilterAll
@@ -1019,8 +992,8 @@ func TestListTitleIncludesLabelName(t *testing.T) {
 	m.labelFilter = &labelID
 	m.labelName = "Bug"
 	m.updateListTitle()
-	if m.list.Title != "TEST > Bug > [All]" {
-		t.Errorf("title = %q, want 'TEST > Bug > [All]'", m.list.Title)
+	if m.list.Title != "TEST > label:Bug > [All]" {
+		t.Errorf("title = %q, want 'TEST > label:Bug > [All]'", m.list.Title)
 	}
 
 	// Project + label
@@ -1028,8 +1001,8 @@ func TestListTitleIncludesLabelName(t *testing.T) {
 	m.projectFilter = &projID
 	m.projectName = "Auth"
 	m.updateListTitle()
-	if m.list.Title != "TEST > Auth > Bug > [All]" {
-		t.Errorf("title = %q, want 'TEST > Auth > Bug > [All]'", m.list.Title)
+	if m.list.Title != "TEST > Auth > label:Bug > [All]" {
+		t.Errorf("title = %q, want 'TEST > Auth > label:Bug > [All]'", m.list.Title)
 	}
 }
 
