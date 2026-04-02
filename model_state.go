@@ -153,6 +153,24 @@ func (i issueItem) Description() string {
 		}
 	}
 
+	if i.issue.SLABreachesAt != nil {
+		if t, err := time.Parse(time.RFC3339, *i.issue.SLABreachesAt); err == nil {
+			d := time.Until(t)
+			var slaStr string
+			switch {
+			case d < 0:
+				slaStr = lipgloss.NewStyle().Foreground(redColor).Render("SLA BREACHED")
+			case d <= 24*time.Hour:
+				slaStr = lipgloss.NewStyle().Foreground(redColor).Render(fmt.Sprintf("SLA %dh", int(d.Hours())))
+			case d <= 3*24*time.Hour:
+				slaStr = lipgloss.NewStyle().Foreground(orangeColor).Render(fmt.Sprintf("SLA %dd", int(d.Hours()/24)))
+			default:
+				slaStr = commentDimStyle.Render(fmt.Sprintf("SLA %dd", int(d.Hours()/24)))
+			}
+			parts = append(parts, slaStr)
+		}
+	}
+
 	if n := len(i.issue.Children.Nodes); n > 0 {
 		done := 0
 		for _, c := range i.issue.Children.Nodes {
