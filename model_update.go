@@ -25,6 +25,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			listHeight -= 2
 		}
 		m.list.SetSize(msg.Width-2, listHeight)
+		m.linkList.SetSize(msg.Width-4, msg.Height-4)
 		if m.settingsTabs[0] != nil {
 			w := msg.Width - 4
 			if w < 60 {
@@ -314,8 +315,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case issueNavigatedMsg:
 		m.loading = false
 		if msg.err != nil {
+			m.pendingHistoryIssue = nil
 			m.statusMsg = fmt.Sprintf("Navigation error: %v", msg.err)
 			return m, nil
+		}
+		if m.pendingHistoryIssue != nil {
+			m.detailHistory = append(m.detailHistory, m.pendingHistoryIssue)
+			m.pendingHistoryIssue = nil
 		}
 		m.detailIssue = msg.issue
 		contentWidth := m.width - 6

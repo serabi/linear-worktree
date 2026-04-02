@@ -354,9 +354,7 @@ func (m *Model) updateLinkList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		li := item.(linkItem)
 		if li.isIssue {
-			if m.detailIssue != nil {
-				m.detailHistory = append(m.detailHistory, m.detailIssue)
-			}
+			m.pendingHistoryIssue = m.detailIssue
 			m.loading = true
 			m.loadingLabel = "Loading issue..."
 			m.view = viewDetail
@@ -442,7 +440,7 @@ func extractURLs(text string) []string {
 }
 
 func openBrowser(url string) {
-	if !strings.HasPrefix(url, "https://") {
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
 		return
 	}
 	for _, cmd := range []string{"open", "xdg-open", "wslview"} {

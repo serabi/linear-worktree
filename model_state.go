@@ -452,7 +452,8 @@ type Model struct {
 	linkList         list.Model
 	linkReturnToView viewMode
 
-	detailHistory []*Issue
+	detailHistory        []*Issue
+	pendingHistoryIssue  *Issue
 
 	prefetchSeq   int
 	lastListIndex int
