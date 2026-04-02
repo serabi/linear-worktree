@@ -180,18 +180,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case commentsLoadedMsg:
-		if m.loadingLabel == "Loading comments..." {
-			m.loading = false
+	case detailContentMsg:
+		if m.view == viewDetail && m.detailIssue != nil && m.detailIssue.ID == msg.issueID {
+			m.detailViewport.SetContent(msg.content)
+			m.detailViewport.GotoTop()
+			if m.cachedCommentID == msg.issueID {
+				m.loading = false
+			}
 		}
+		return m, nil
+
+	case commentsLoadedMsg:
 		if msg.err == nil {
 			m.cachedComments = msg.comments
 			m.cachedCommentID = msg.issueID
 			if m.view == viewDetail && m.detailIssue != nil && m.detailIssue.ID == msg.issueID {
-				contentWidth := m.width - 6
-				m.detailViewport.SetContent(m.buildDetailContent(m.detailIssue, contentWidth))
+				return m, m.buildDetailContentCmd(m.detailIssue)
 			}
 		}
+		m.loading = false
 		return m, nil
 
 	case launchReadyMsg:
@@ -324,18 +331,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingHistoryIssue = nil
 		}
 		m.detailIssue = msg.issue
-		contentWidth := m.width - 6
-		m.detailViewport.Width = contentWidth
+		m.detailViewport.Width = m.width - 6
 		m.detailViewport.Height = m.height - 6
-		m.detailViewport.SetContent(m.buildDetailContent(msg.issue, contentWidth))
-		m.detailViewport.GotoTop()
 		m.view = viewDetail
+		m.loading = true
+		m.loadingLabel = "Loading..."
+		cmds := []tea.Cmd{m.buildDetailContentCmd(msg.issue), m.spinner.Tick}
 		if msg.issue.ID != m.cachedCommentID {
-			m.loading = true
-			m.loadingLabel = "Loading comments..."
-			return m, tea.Batch(m.fetchCommentsCmd(msg.issue.ID), m.spinner.Tick)
+			cmds = append(cmds, m.fetchCommentsCmd(msg.issue.ID))
 		}
-		return m, nil
+		return m, tea.Batch(cmds...)
 
 	case branchIssueFoundMsg:
 		if msg.issue != nil {
@@ -552,16 +557,13 @@ func (m *Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			prev := m.detailHistory[len(m.detailHistory)-1]
 			m.detailHistory = m.detailHistory[:len(m.detailHistory)-1]
 			m.detailIssue = prev
-			contentWidth := m.width - 6
-			m.detailViewport.SetContent(m.buildDetailContent(prev, contentWidth))
-			m.detailViewport.GotoTop()
+			m.loading = true
+			m.loadingLabel = "Loading..."
+			cmds := []tea.Cmd{m.buildDetailContentCmd(prev), m.spinner.Tick}
 			if prev.ID != m.cachedCommentID {
-				m.loading = true
-				m.loadingLabel = "Loading comments..."
-				return m, tea.Batch(m.fetchCommentsCmd(prev.ID), m.spinner.Tick)
+				cmds = append(cmds, m.fetchCommentsCmd(prev.ID))
 			}
-			m.loading = false
-			return m, nil
+			return m, tea.Batch(cmds...)
 		}
 		m.view = viewList
 		m.detailIssue = nil

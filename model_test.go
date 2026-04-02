@@ -585,11 +585,11 @@ func TestDetailBackNavigationSkipsFetchWhenCached(t *testing.T) {
 	result, cmd := m.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Runes: []rune{'d'}}))
 	updated := result.(*Model)
 
-	if updated.loading {
-		t.Error("expected loading=false when comments already cached")
+	if updated.detailIssue.ID != prevIssue.ID {
+		t.Errorf("expected detailIssue to be restored to prev, got %s", updated.detailIssue.ID)
 	}
-	if cmd != nil {
-		t.Error("expected nil cmd when comments already cached")
+	if cmd == nil {
+		t.Error("expected cmd for async content rendering")
 	}
 }
 

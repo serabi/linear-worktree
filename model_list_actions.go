@@ -139,18 +139,15 @@ func (m *Model) showSelectedIssueDetail() (tea.Model, tea.Cmd) {
 	m.view = viewDetail
 	m.detailIssue = issue
 	m.detailHistory = nil
-	contentWidth := m.width - 6
-	m.detailViewport.Width = contentWidth
+	m.detailViewport.Width = m.width - 6
 	m.detailViewport.Height = m.height - 6
-	m.detailViewport.SetContent(m.buildDetailContent(issue, contentWidth))
-	m.detailViewport.GotoTop()
+	m.loading = true
+	m.loadingLabel = "Loading..."
+	cmds := []tea.Cmd{m.buildDetailContentCmd(issue), m.spinner.Tick}
 	if issue.ID != m.cachedCommentID {
-		m.loading = true
-		m.loadingLabel = "Loading comments..."
-		return m, tea.Batch(m.fetchCommentsCmd(issue.ID), m.spinner.Tick)
+		cmds = append(cmds, m.fetchCommentsCmd(issue.ID))
 	}
-	m.loading = false
-	return m, nil
+	return m, tea.Batch(cmds...)
 }
 
 

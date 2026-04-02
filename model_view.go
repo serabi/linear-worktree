@@ -176,12 +176,12 @@ func (m Model) viewDetail() string {
 
 	status := detailKeys("")
 
-	if m.loading && m.detailIssue != nil && m.cachedCommentID != m.detailIssue.ID {
+	if m.loading && m.detailIssue != nil {
 		loadingBox := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("#7C3AED")).
 			Padding(1, 3).
-			Render(m.spinner.View() + "  Loading comments...")
+			Render(m.spinner.View() + "  " + m.loadingLabel)
 		overlay := lipgloss.Place(m.width, m.height-4, lipgloss.Center, lipgloss.Center, loadingBox)
 		return appStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, overlay, status))
 	}

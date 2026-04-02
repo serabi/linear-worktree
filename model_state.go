@@ -330,6 +330,11 @@ type issueNavigatedMsg struct {
 	err   error
 }
 
+type detailContentMsg struct {
+	issueID string
+	content string
+}
+
 type searchResultsMsg struct {
 	issues []Issue
 	err    error
