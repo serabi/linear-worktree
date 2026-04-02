@@ -253,6 +253,12 @@ func (m *Model) showSortPicker() tea.Cmd {
 		huh.NewOption("Recently created", "created"),
 		huh.NewOption("Priority", "priority"),
 	}
+	for _, issue := range m.issues {
+		if issue.SLABreachesAt != nil || issue.SLAType != nil {
+			options = append(options, huh.NewOption("SLA status", "sla"))
+			break
+		}
+	}
 
 	m.sortForm = huh.NewForm(
 		huh.NewGroup(
@@ -278,6 +284,8 @@ func (m *Model) handleSortSelected() (tea.Model, tea.Cmd) {
 		m.sortMode = SortCreatedAt
 	case "priority":
 		m.sortMode = SortPriority
+	case "sla":
+		m.sortMode = SortSLAStatus
 	default:
 		return m, nil
 	}

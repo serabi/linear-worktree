@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
@@ -995,6 +996,130 @@ func TestListTitleIncludesLabelName(t *testing.T) {
 	m.updateListTitle()
 	if m.list.Title != "TEST > Auth > label:Bug > [All]" {
 		t.Errorf("title = %q, want 'TEST > Auth > label:Bug > [All]'", m.list.Title)
+	}
+}
+
+func TestDetailSLAFieldsRendered(t *testing.T) {
+	m := NewModel(DefaultConfig())
+	m.width = 80
+	m.height = 40
+
+	slaType := "all"
+	breach := time.Now().Add(72 * time.Hour).Format(time.RFC3339)
+	started := time.Now().Add(-2 * time.Hour).Format(time.RFC3339)
+	medium := time.Now().Add(48 * time.Hour).Format(time.RFC3339)
+	high := time.Now().Add(60 * time.Hour).Format(time.RFC3339)
+
+	issue := &Issue{
+		ID: "issue-1", Identifier: "TEST-1", Title: "Test SLA",
+		SLAType:         &slaType,
+		SLABreachesAt:   &breach,
+		SLAStartedAt:    &started,
+		SLAMediumRiskAt: &medium,
+		SLAHighRiskAt:   &high,
+	}
+
+	content := m.buildDetailContent(issue, 70)
+	if !strings.Contains(content, "SLA Breach") {
+		t.Error("expected SLA Breach field in output")
+	}
+	if !strings.Contains(content, "Calendar Days") {
+		t.Error("expected humanized SLA type 'Calendar Days'")
+	}
+	if !strings.Contains(content, "SLA Started") {
+		t.Error("expected SLA Started field in output")
+	}
+}
+
+func TestDetailNoSLAFieldsWhenNil(t *testing.T) {
+	m := NewModel(DefaultConfig())
+	m.width = 80
+	m.height = 40
+
+	issue := &Issue{ID: "issue-1", Identifier: "TEST-1", Title: "Plain Issue"}
+	content := m.buildDetailContent(issue, 70)
+	if strings.Contains(content, "SLA Breach") || strings.Contains(content, "SLA Scope") || strings.Contains(content, "SLA Started") {
+		t.Error("expected no SLA fields when all SLA fields are nil")
+	}
+}
+
+func TestDetailSLABreachedStatus(t *testing.T) {
+	m := NewModel(DefaultConfig())
+	m.width = 80
+	m.height = 40
+
+	breach := time.Now().Add(-1 * time.Hour).Format(time.RFC3339)
+	issue := &Issue{
+		ID: "issue-1", Identifier: "TEST-1", Title: "Breached",
+		SLABreachesAt: &breach,
+	}
+
+	content := m.buildDetailContent(issue, 70)
+	if !strings.Contains(content, "BREACHED") {
+		t.Error("expected BREACHED indicator for past breach time")
+	}
+}
+
+func TestDetailSLABreachOnly(t *testing.T) {
+	m := NewModel(DefaultConfig())
+	m.width = 80
+	m.height = 40
+
+	breach := time.Now().Add(48 * time.Hour).Format(time.RFC3339)
+	issue := &Issue{
+		ID: "issue-1", Identifier: "TEST-1", Title: "Breach Only",
+		SLABreachesAt: &breach,
+	}
+
+	content := m.buildDetailContent(issue, 70)
+	if !strings.Contains(content, "SLA Breach") {
+		t.Error("expected SLA Breach field")
+	}
+	if strings.Contains(content, "SLA Scope") {
+		t.Error("expected no SLA Scope when SLAType is nil")
+	}
+	if strings.Contains(content, "SLA Started") {
+		t.Error("expected no SLA Started when SLAStartedAt is nil")
+	}
+}
+
+func TestHumanizeSLAType(t *testing.T) {
+	tests := []struct {
+		input, want string
+	}{
+		{"all", "Calendar Days"},
+		{"onlyBusinessDays", "Business Days"},
+		{"custom", "Custom"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := humanizeSLAType(tt.input)
+		if got != tt.want {
+			t.Errorf("humanizeSLAType(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestRelativeTimeUntil(t *testing.T) {
+	tests := []struct {
+		name   string
+		offset time.Duration
+		want   string
+	}{
+		{"future hours", 3*time.Hour + 30*time.Second, "in 3h"},
+		{"future days", 5*24*time.Hour + 30*time.Second, "in 5d"},
+		{"future minutes", 30*time.Minute + 30*time.Second, "in 30m"},
+		{"past hours", -3*time.Hour - 30*time.Second, "3h ago"},
+		{"past days", -5*24*time.Hour - 30*time.Second, "5d ago"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			iso := time.Now().Add(tt.offset).Format(time.RFC3339)
+			got := relativeTimeUntil(iso)
+			if got != tt.want {
+				t.Errorf("relativeTimeUntil(%v offset) = %q, want %q", tt.offset, got, tt.want)
+			}
+		})
 	}
 }
 
