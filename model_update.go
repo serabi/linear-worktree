@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textarea"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/huh"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
 )
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -39,8 +39,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.view == viewDetail && m.detailIssue != nil {
 			contentWidth := msg.Width - 6
-			m.detailViewport.Width = contentWidth
-			m.detailViewport.Height = msg.Height - 6
+			m.detailViewport.SetWidth(contentWidth)
+			m.detailViewport.SetHeight(msg.Height - 6)
 			m.detailViewport.SetContent(m.buildDetailContent(m.detailIssue, contentWidth))
 		}
 		return m, nil
@@ -331,8 +331,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingHistoryIssue = nil
 		}
 		m.detailIssue = msg.issue
-		m.detailViewport.Width = m.width - 6
-		m.detailViewport.Height = m.height - 6
+		m.detailViewport.SetWidth(m.width - 6)
+		m.detailViewport.SetHeight(m.height - 6)
 		m.view = viewDetail
 		m.loading = true
 		m.loadingLabel = "Loading..."

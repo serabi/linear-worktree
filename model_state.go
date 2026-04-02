@@ -5,16 +5,17 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/bubbles/help"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
-	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
+	"charm.land/huh/v2"
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/compat"
 )
 
 var (
@@ -22,16 +23,16 @@ var (
 	// AdaptiveColor: {Light, Dark}
 	// Adaptive colors for WCAG AA contrast on both light and dark backgrounds.
 	// Light values target >= 4.5:1 against #F5F5F5; dark values target visibility on #1E1E1E.
-	dimColor       = lipgloss.AdaptiveColor{Light: "#444", Dark: "#888"}
-	subtleColor    = lipgloss.AdaptiveColor{Light: "#555", Dark: "#555"}
-	mutedColor     = lipgloss.AdaptiveColor{Light: "#555", Dark: "#666"}
-	faintColor     = lipgloss.AdaptiveColor{Light: "#646464", Dark: "#444"}
-	yellowColor    = lipgloss.AdaptiveColor{Light: "#B45309", Dark: "#EAB308"}
-	identCyanColor = lipgloss.AdaptiveColor{Light: "#0E7490", Dark: "#06B6D4"}
-	greenColor     = lipgloss.AdaptiveColor{Light: "#15803D", Dark: "#22C55E"}
-	redColor       = lipgloss.AdaptiveColor{Light: "#B91C1C", Dark: "#EF4444"}
-	orangeColor    = lipgloss.AdaptiveColor{Light: "#C2410C", Dark: "#F97316"}
-	blueColor      = lipgloss.AdaptiveColor{Light: "#2563EB", Dark: "#3B82F6"}
+	dimColor       = compat.AdaptiveColor{Light: lipgloss.Color("#444"), Dark: lipgloss.Color("#888")}
+	subtleColor    = compat.AdaptiveColor{Light: lipgloss.Color("#555"), Dark: lipgloss.Color("#555")}
+	mutedColor     = compat.AdaptiveColor{Light: lipgloss.Color("#555"), Dark: lipgloss.Color("#666")}
+	faintColor     = compat.AdaptiveColor{Light: lipgloss.Color("#646464"), Dark: lipgloss.Color("#444")}
+	yellowColor    = compat.AdaptiveColor{Light: lipgloss.Color("#B45309"), Dark: lipgloss.Color("#EAB308")}
+	identCyanColor = compat.AdaptiveColor{Light: lipgloss.Color("#0E7490"), Dark: lipgloss.Color("#06B6D4")}
+	greenColor     = compat.AdaptiveColor{Light: lipgloss.Color("#15803D"), Dark: lipgloss.Color("#22C55E")}
+	redColor       = compat.AdaptiveColor{Light: lipgloss.Color("#B91C1C"), Dark: lipgloss.Color("#EF4444")}
+	orangeColor    = compat.AdaptiveColor{Light: lipgloss.Color("#C2410C"), Dark: lipgloss.Color("#F97316")}
+	blueColor      = compat.AdaptiveColor{Light: lipgloss.Color("#2563EB"), Dark: lipgloss.Color("#3B82F6")}
 
 	appStyle = lipgloss.NewStyle().Padding(0, 1)
 

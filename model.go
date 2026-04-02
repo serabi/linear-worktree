@@ -1,14 +1,14 @@
 package main
 
 import (
-	"github.com/charmbracelet/bubbles/help"
-	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 func NewModel(cfg Config) Model {
@@ -56,7 +56,7 @@ func NewModel(cfg Config) Model {
 	h.Styles.ShortSeparator = h.Styles.ShortSeparator.Foreground(faintColor)
 	h.Styles.FullSeparator = h.Styles.FullSeparator.Foreground(faintColor)
 
-	vp := viewport.New(38, 20)
+	vp := viewport.New(viewport.WithWidth(38), viewport.WithHeight(20))
 
 	launchDelegate := list.NewDefaultDelegate()
 	launchDelegate.SetHeight(2)

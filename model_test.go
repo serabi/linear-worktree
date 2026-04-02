@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/huh"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
 )
 
 func requireModelPtr(t *testing.T, model tea.Model) *Model {
@@ -290,7 +290,7 @@ func TestSortPickerEnterCompletesSelection(t *testing.T) {
 		model = requireModelPtr(t, result)
 	}
 
-	result, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	result, cmd = model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = requireModelPtr(t, result)
 
 	// Process follow-up messages until the form completes
@@ -552,7 +552,7 @@ func TestDetailBackNavigationFetchesComments(t *testing.T) {
 	m.detailHistory = []*Issue{prevIssue}
 	m.cachedCommentID = currIssue.ID
 
-	result, cmd := m.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Runes: []rune{'d'}}))
+	result, cmd := m.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
 	updated := result.(*Model)
 
 	if updated.detailIssue.ID != prevIssue.ID {
@@ -582,7 +582,7 @@ func TestDetailBackNavigationSkipsFetchWhenCached(t *testing.T) {
 	m.detailHistory = []*Issue{prevIssue}
 	m.cachedCommentID = prevIssue.ID // already cached
 
-	result, cmd := m.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Runes: []rune{'d'}}))
+	result, cmd := m.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
 	updated := result.(*Model)
 
 	if updated.detailIssue.ID != prevIssue.ID {
@@ -621,14 +621,14 @@ func TestDetailCommentSortToggle(t *testing.T) {
 	}
 
 	// Press 'o' to toggle
-	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	result, _ := m.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
 	model := requireModelPtr(t, result)
 	if !model.commentSortAsc {
 		t.Fatal("expected commentSortAsc to be true after toggle")
 	}
 
 	// Press 'o' again to toggle back
-	result, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	result, _ = model.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
 	model = requireModelPtr(t, result)
 	if model.commentSortAsc {
 		t.Fatal("expected commentSortAsc to be false after second toggle")
@@ -687,7 +687,7 @@ func TestDetailRefreshComments(t *testing.T) {
 	m.view = viewDetail
 
 	// Press 'r' to refresh
-	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	result, cmd := m.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
 	model := requireModelPtr(t, result)
 
 	if !model.loading {
@@ -706,7 +706,7 @@ func TestDetailRefreshNoIssue(t *testing.T) {
 	m.view = viewDetail
 	m.detailIssue = nil
 
-	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	result, cmd := m.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
 	model := requireModelPtr(t, result)
 
 	if model.loading {
@@ -734,7 +734,7 @@ func TestSortPickerEscCancels(t *testing.T) {
 	}
 
 	// Press Esc
-	result, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	result, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	model = requireModelPtr(t, result)
 
 	if model.view != viewList {
