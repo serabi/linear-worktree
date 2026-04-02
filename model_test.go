@@ -285,11 +285,7 @@ func TestSortPickerEnterCompletesSelection(t *testing.T) {
 
 	// Process the init cmd so the form becomes interactive
 	result, cmd := m.Update(initCmd())
-	model := requireModelPtr(t, result)
-	for cmd != nil {
-		result, cmd = model.Update(cmd())
-		model = requireModelPtr(t, result)
-	}
+	model := drainCmds(t, requireModelPtr(t, result), cmd)
 
 	result, cmd = model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = requireModelPtr(t, result)
@@ -731,11 +727,7 @@ func TestSortPickerEscCancels(t *testing.T) {
 
 	// Process init
 	result, cmd := m.Update(initCmd())
-	model := requireModelPtr(t, result)
-	for cmd != nil {
-		result, cmd = model.Update(cmd())
-		model = requireModelPtr(t, result)
-	}
+	model := drainCmds(t, requireModelPtr(t, result), cmd)
 
 	// Press Esc
 	result, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})

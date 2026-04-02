@@ -1,0 +1,21 @@
+No issues assigned to you in TST.                                  
+                                 Press tab or f to see all issues.                                  
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+  TST | 0 issues | Assigned to me | Updated                                                         
+  ○ Backlog ○ Todo ● In Progress ✓ Done  ▲ Urgent ▲ High ■ Med ▼ Low                                
+  enter:detail  c:claude  p:project  f:filter  o:sort  s:settings(+teams)  ?:help
