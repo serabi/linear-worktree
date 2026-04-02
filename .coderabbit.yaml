@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+early_access: false
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: true
+  auto_review:
+    enabled: true
+    drafts: false
+  tools:
+    golangci-lint:
+      enabled: true
+    gitleaks:
+      enabled: true
+  path_instructions:
+    - path: "**/*.go"
+      instructions: |
+        This is a single-package Go TUI app (package main, no subdirectories)
+        using the charmbracelet stack: bubbletea, bubbles, lipgloss, huh, glamour.
+
+        Key conventions:
+        - UI must use charmbracelet components only — no custom widgets.
+        - API key stored in OS keychain via go-keyring, never in config files.
+        - Optional API fields use pointer types (*string, *float64).
+        - Picker UIs follow the pattern: show*Picker() -> update*Picker() -> handle*Selected().
+        - Prefer self-documenting code over comments.
+    - path: "linear.go"
+      instructions: |
+        Linear GraphQL API client. Watch for:
+        - GraphQL queries use string templates with fmt.Sprintf placeholders.
+        - issueListFields (minimal for list) vs issueFields (full for detail view).
+        - Filter logic uses the issueFilterByMode map.
+    - path: "config.go"
+      instructions: |
+        Config at ~/.config/linear-worktree/config.json.
+        API keys must NOT be stored here — they belong in the OS keychain.
+        Flag any changes that might expose secrets.
+    - path: "worktree.go"
+      instructions: |
+        Git worktree operations. Worktrees are created under a shared
+        worktrees directory, not the repo root.
+    - path: "cmux.go"
+      instructions: |
+        Cmux socket API client for terminal multiplexer integration.
+        E-layout: TUI left pane, Claude Code sessions right pane.
+  path_filters:
+    - "!demo.go"
+    - "!debug.log"
+chat:
+  auto_reply: true
