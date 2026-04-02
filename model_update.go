@@ -94,6 +94,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updatePrompt(msg)
 		case viewProjectPicker:
 			return m.updateProjectPicker(msg)
+		case viewLabelPicker:
+			return m.updateLabelPicker(msg)
 		case viewStatePicker:
 			return m.updateStatePicker(msg)
 		case viewFilterPicker:
@@ -376,6 +378,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 	}
+	if m.view == viewLabelPicker && m.labelForm != nil {
+		form, cmd := m.labelForm.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			m.labelForm = f
+		}
+		if m.labelForm.State == huh.StateCompleted {
+			return m.handleLabelSelected()
+		}
+		return m, cmd
+	}
 	if m.view == viewProjectPicker && m.projectForm != nil {
 		form, cmd := m.projectForm.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
@@ -475,6 +487,9 @@ func (m *Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("p"))):
 		return m, m.showProjectPicker()
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("L"))):
+		return m, m.showLabelPicker()
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("?"))):
 		m.showHelp = !m.showHelp

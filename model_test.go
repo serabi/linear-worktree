@@ -819,5 +819,184 @@ func TestTeamSwitchPreservesState(t *testing.T) {
 	}
 }
 
+func TestLabelPickerEnterCompletesSelection(t *testing.T) {
+	m := NewModel(Config{TeamKey: "TEST"})
+	m.issues = []Issue{
+		{Identifier: "TEST-1", Title: "Issue 1"},
+		{Identifier: "TEST-2", Title: "Issue 2"},
+	}
+	m.issues[0].Labels.Nodes = []struct {
+		ID    string `json:"id"`
+		Name  string `json:"name"`
+		Color string `json:"color"`
+	}{{"label-1", "Bug", "#ff0000"}}
+	m.issues[1].Labels.Nodes = []struct {
+		ID    string `json:"id"`
+		Name  string `json:"name"`
+		Color string `json:"color"`
+	}{{"label-2", "Feature", "#00ff00"}}
+	initCmd := m.showLabelPicker()
+	if initCmd == nil {
+		t.Fatal("expected label picker init cmd")
+	}
+	if m.view != viewLabelPicker {
+		t.Fatalf("view = %v, want label picker", m.view)
+	}
+	if m.labelForm == nil {
+		t.Fatal("expected label form to be initialized")
+	}
+
+	// Process the init cmd so the form becomes interactive
+	result, cmd := m.Update(initCmd())
+	model := drainCmds(t, requireModelPtr(t, result), cmd)
+
+	result, cmd = model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	model = requireModelPtr(t, result)
+
+	// Process follow-up messages until the form completes
+	for i := 0; i < 10 && cmd != nil; i++ {
+		result, cmd = model.Update(cmd())
+		model = requireModelPtr(t, result)
+		if model.view == viewList {
+			break
+		}
+	}
+	if model.view != viewList {
+		t.Fatalf("view after completion = %v, want list", model.view)
+	}
+	if model.labelForm != nil {
+		t.Fatal("expected label form to be cleared after completion")
+	}
+	// Default selection is "All issues" (empty string) so labelFilter should be nil
+	if model.labelFilter != nil {
+		t.Fatalf("labelFilter = %v, want nil for 'All issues'", model.labelFilter)
+	}
+	if !model.loading {
+		t.Fatal("expected label selection to trigger reload")
+	}
+}
+
+func TestLabelPickerEscCancels(t *testing.T) {
+	m := NewModel(Config{TeamKey: "TEST"})
+	m.issues = []Issue{{Identifier: "TEST-1", Title: "Issue 1"}}
+	m.issues[0].Labels.Nodes = []struct {
+		ID    string `json:"id"`
+		Name  string `json:"name"`
+		Color string `json:"color"`
+	}{{"label-1", "Bug", "#ff0000"}}
+	labelID := "label-1"
+	m.labelFilter = &labelID
+	m.labelName = "Bug"
+
+	initCmd := m.showLabelPicker()
+	if initCmd == nil {
+		t.Fatal("expected init cmd")
+	}
+
+	// Process init
+	result, cmd := m.Update(initCmd())
+	model := drainCmds(t, requireModelPtr(t, result), cmd)
+
+	// Press Esc
+	result, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	model = requireModelPtr(t, result)
+
+	if model.view != viewList {
+		t.Fatalf("view = %v, want viewList after esc", model.view)
+	}
+	if model.labelForm != nil {
+		t.Fatal("expected labelForm to be nil after esc")
+	}
+	// Label filter should remain unchanged
+	if model.labelFilter == nil || *model.labelFilter != "label-1" {
+		t.Fatal("expected labelFilter to remain unchanged after esc")
+	}
+	if model.labelName != "Bug" {
+		t.Fatalf("labelName = %q, want 'Bug' (unchanged)", model.labelName)
+	}
+}
+
+func TestTeamSwitchPreservesLabelState(t *testing.T) {
+	cfg := Config{
+		LinearAPIKey:  "lin_api_test",
+		TeamID:        "team-1",
+		TeamKey:       "TEAM1",
+		Teams:         []TeamEntry{{ID: "team-1", Key: "TEAM1"}, {ID: "team-2", Key: "TEAM2"}},
+		ClaudeCommand: "claude",
+		WorktreeBase:  "../worktrees",
+		BranchPrefix:  "feature/",
+		MaxSlots:      3,
+	}
+	m := NewModel(cfg)
+	m.width = 120
+	m.height = 40
+
+	// Simulate loaded state for TEAM1 with label filter
+	m.issues = []Issue{
+		{Identifier: "TEAM1-1", Title: "First issue"},
+	}
+	m.labels = []IssueLabel{{ID: "lbl-1", Name: "Bug", Color: "#ff0000"}}
+	labelID := "lbl-1"
+	m.labelFilter = &labelID
+	m.labelName = "Bug"
+	m.rebuildList()
+
+	// Switch to TEAM2
+	switchedCfg := cfg
+	switchedCfg.TeamID = "team-2"
+	switchedCfg.TeamKey = "TEAM2"
+	result, _ := m.Update(teamSwitchedMsg{cfg: switchedCfg})
+	mp := result.(Model)
+
+	// TEAM2 should have cleared label state
+	if mp.labelFilter != nil {
+		t.Error("expected labelFilter to be nil for new team")
+	}
+	if mp.labelName != "" {
+		t.Errorf("expected empty labelName for new team, got %q", mp.labelName)
+	}
+
+	// Switch back to TEAM1
+	result2, _ := mp.Update(teamSwitchedMsg{cfg: cfg})
+	mp2 := result2.(Model)
+
+	// Should restore TEAM1's cached label state
+	if mp2.labelFilter == nil || *mp2.labelFilter != "lbl-1" {
+		t.Error("expected cached labelFilter to be restored")
+	}
+	if mp2.labelName != "Bug" {
+		t.Errorf("expected cached labelName 'Bug', got %q", mp2.labelName)
+	}
+}
+
+func TestListTitleIncludesLabelName(t *testing.T) {
+	m := NewModel(Config{TeamKey: "TEST", Teams: []TeamEntry{{ID: "t1", Key: "TEST"}}})
+	m.filter = FilterAll
+
+	// No filters
+	m.updateListTitle()
+	if m.list.Title != "TEST > [All]" {
+		t.Errorf("title = %q, want 'TEST > [All]'", m.list.Title)
+	}
+
+	// Label filter only
+	labelID := "lbl-1"
+	m.labelFilter = &labelID
+	m.labelName = "Bug"
+	m.updateListTitle()
+	if m.list.Title != "TEST > label:Bug > [All]" {
+		t.Errorf("title = %q, want 'TEST > label:Bug > [All]'", m.list.Title)
+	}
+
+	// Project + label
+	projID := "p1"
+	m.projectFilter = &projID
+	m.projectName = "Auth"
+	m.updateListTitle()
+	if m.list.Title != "TEST > Auth > label:Bug > [All]" {
+		t.Errorf("title = %q, want 'TEST > Auth > label:Bug > [All]'", m.list.Title)
+	}
+}
+
 // Ensure huh is used (compile-time check)
 var _ = huh.StateCompleted

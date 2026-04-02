@@ -37,6 +37,86 @@ func (m *Model) showProjectPicker() tea.Cmd {
 	return m.projectForm.Init()
 }
 
+func (m *Model) deriveLabelsFromIssues() []IssueLabel {
+	seen := make(map[string]bool)
+	var labels []IssueLabel
+	for _, issue := range m.issues {
+		for _, l := range issue.Labels.Nodes {
+			if l.ID != "" && !seen[l.ID] {
+				seen[l.ID] = true
+				labels = append(labels, IssueLabel{ID: l.ID, Name: l.Name, Color: l.Color})
+			}
+		}
+	}
+	return labels
+}
+
+func (m *Model) showLabelPicker() tea.Cmd {
+	m.labels = m.deriveLabelsFromIssues()
+	if len(m.labels) == 0 {
+		m.statusMsg = "No labels found on current issues"
+		return nil
+	}
+	options := []huh.Option[string]{
+		huh.NewOption("All issues", ""),
+	}
+	for _, l := range m.labels {
+		options = append(options, huh.NewOption(l.Name, l.ID))
+	}
+
+	m.labelForm = huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Key("label").
+				Title("Filter by label").
+				Options(options...),
+		),
+	).WithWidth(50).WithShowHelp(false).WithShowErrors(false)
+	m.view = viewLabelPicker
+	return m.labelForm.Init()
+}
+
+func (m *Model) handleLabelSelected() (tea.Model, tea.Cmd) {
+	selected := m.labelForm.GetString("label")
+	m.labelForm = nil
+	m.view = viewList
+
+	if selected == "" {
+		m.labelFilter = nil
+		m.labelName = ""
+	} else {
+		m.labelFilter = &selected
+		for _, l := range m.labels {
+			if l.ID == selected {
+				m.labelName = l.Name
+				break
+			}
+		}
+	}
+
+	m.updateListTitle()
+	m.loading = true
+	m.loadingLabel = "Loading..."
+	return m, tea.Batch(m.fetchIssues(), m.spinner.Tick)
+}
+
+func (m *Model) updateLabelPicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "esc" {
+		m.view = viewList
+		m.labelForm = nil
+		return m, nil
+	}
+
+	form, cmd := m.labelForm.Update(msg)
+	if f, ok := form.(*huh.Form); ok {
+		m.labelForm = f
+	}
+	if m.labelForm.State == huh.StateCompleted {
+		return m.handleLabelSelected()
+	}
+	return m, cmd
+}
+
 func (m *Model) showStatePicker() tea.Cmd {
 	if m.stateIssue == nil {
 		return nil

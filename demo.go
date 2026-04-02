@@ -155,33 +155,40 @@ func DemoIssues() []Issue {
 
 	// Set labels
 	issues[0].Labels.Nodes = []struct {
+		ID    string `json:"id"`
 		Name  string `json:"name"`
 		Color string `json:"color"`
-	}{{"backend", "#0EA5E9"}, {"security", "#EF4444"}}
+	}{{"lbl-backend", "backend", "#0EA5E9"}, {"lbl-security", "security", "#EF4444"}}
 	issues[1].Labels.Nodes = []struct {
+		ID    string `json:"id"`
 		Name  string `json:"name"`
 		Color string `json:"color"`
-	}{{"bug", "#EF4444"}, {"backend", "#0EA5E9"}}
+	}{{"lbl-bug", "bug", "#EF4444"}, {"lbl-backend", "backend", "#0EA5E9"}}
 	issues[2].Labels.Nodes = []struct {
+		ID    string `json:"id"`
 		Name  string `json:"name"`
 		Color string `json:"color"`
-	}{{"migration", "#8B5CF6"}}
+	}{{"lbl-migration", "migration", "#8B5CF6"}}
 	issues[3].Labels.Nodes = []struct {
+		ID    string `json:"id"`
 		Name  string `json:"name"`
 		Color string `json:"color"`
-	}{{"backend", "#0EA5E9"}}
+	}{{"lbl-backend", "backend", "#0EA5E9"}}
 	issues[4].Labels.Nodes = []struct {
+		ID    string `json:"id"`
 		Name  string `json:"name"`
 		Color string `json:"color"`
-	}{{"observability", "#F59E0B"}}
+	}{{"lbl-observability", "observability", "#F59E0B"}}
 	issues[7].Labels.Nodes = []struct {
+		ID    string `json:"id"`
 		Name  string `json:"name"`
 		Color string `json:"color"`
-	}{{"infrastructure", "#6B7280"}}
+	}{{"lbl-infrastructure", "infrastructure", "#6B7280"}}
 	issues[8].Labels.Nodes = []struct {
+		ID    string `json:"id"`
 		Name  string `json:"name"`
 		Color string `json:"color"`
-	}{{"compliance", "#10B981"}, {"backend", "#0EA5E9"}}
+	}{{"lbl-compliance", "compliance", "#10B981"}, {"lbl-backend", "backend", "#0EA5E9"}}
 
 	// Set projects
 	platformProject := struct {
