@@ -38,6 +38,12 @@ type Issue struct {
 	DueDate     *string  `json:"dueDate"`
 	CreatedAt   string   `json:"createdAt"`
 	UpdatedAt   string   `json:"updatedAt"`
+	// SLA tracking fields (nil for issues without SLA policies)
+	SLAStartedAt    *string `json:"slaStartedAt"`
+	SLAMediumRiskAt *string `json:"slaMediumRiskAt"`
+	SLAHighRiskAt   *string `json:"slaHighRiskAt"`
+	SLABreachesAt   *string `json:"slaBreachesAt"`
+	SLAType         *string `json:"slaType"`
 	State       struct {
 		Name  string `json:"name"`
 		Type  string `json:"type"`
@@ -222,6 +228,7 @@ const issueListFields = `
 const issueFields = `
 	id identifier title description priority url branchName
 	estimate dueDate createdAt updatedAt
+	slaStartedAt slaMediumRiskAt slaHighRiskAt slaBreachesAt slaType
 	state { name type color }
 	assignee { id name displayName }
 	labels { nodes { id name color } }

@@ -144,6 +144,18 @@ func (m Model) writeDetailMetadata(b *strings.Builder, issue *Issue, ctx detailR
 	if issue.DueDate != nil {
 		b.WriteString(ctx.field("Due", formatDueDate(*issue.DueDate, ctx)))
 	}
+	if issue.SLABreachesAt != nil || issue.SLAStartedAt != nil {
+		if issue.SLABreachesAt != nil {
+			breachStr := formatSLABreach(*issue.SLABreachesAt, issue.SLAHighRiskAt, issue.SLAMediumRiskAt, ctx)
+			b.WriteString(ctx.field("SLA Breach", breachStr))
+		}
+		if issue.SLAType != nil {
+			b.WriteString(ctx.field("SLA Scope", humanizeSLAType(*issue.SLAType)))
+		}
+		if issue.SLAStartedAt != nil {
+			b.WriteString(ctx.field("SLA Started", relativeTime(*issue.SLAStartedAt)))
+		}
+	}
 	if len(issue.Labels.Nodes) > 0 {
 		pills := make([]string, len(issue.Labels.Nodes))
 		for i, label := range issue.Labels.Nodes {
@@ -331,5 +343,82 @@ func relativeTime(iso string) string {
 		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 	default:
 		return t.Format("Jan 2")
+	}
+}
+
+func relativeTimeUntil(iso string) string {
+	t, err := time.Parse(time.RFC3339, iso)
+	if err != nil {
+		return iso
+	}
+	d := time.Until(t)
+	if d < 0 {
+		d = -d
+		switch {
+		case d < time.Minute:
+			return "just now"
+		case d < time.Hour:
+			return fmt.Sprintf("%dm ago", int(d.Minutes()))
+		case d < 24*time.Hour:
+			return fmt.Sprintf("%dh ago", int(d.Hours()))
+		case d < 30*24*time.Hour:
+			return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+		default:
+			return t.Format("Jan 2")
+		}
+	}
+	switch {
+	case d < time.Minute:
+		return "in < 1m"
+	case d < time.Hour:
+		return fmt.Sprintf("in %dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("in %dh", int(d.Hours()))
+	case d < 30*24*time.Hour:
+		return fmt.Sprintf("in %dd", int(d.Hours()/24))
+	default:
+		return t.Format("Jan 2")
+	}
+}
+
+func isTimePast(iso string) bool {
+	t, err := time.Parse(time.RFC3339, iso)
+	if err != nil {
+		return false
+	}
+	return !t.After(time.Now())
+}
+
+func formatSLABreach(breachesAt string, highRiskAt, mediumRiskAt *string, ctx detailRenderContext) string {
+	t, err := time.Parse(time.RFC3339, breachesAt)
+	if err != nil {
+		return breachesAt
+	}
+	timeStr := relativeTimeUntil(breachesAt)
+	switch {
+	case !t.After(time.Now()):
+		return ctx.blocker("BREACHED " + timeStr)
+	case time.Until(t) <= 24*time.Hour:
+		return ctx.blocker(timeStr)
+	case highRiskAt != nil && isTimePast(*highRiskAt):
+		return lipgloss.NewStyle().Foreground(yellowColor).Render(timeStr)
+	case mediumRiskAt != nil && isTimePast(*mediumRiskAt):
+		return lipgloss.NewStyle().Foreground(orangeColor).Render(timeStr)
+	default:
+		return timeStr
+	}
+}
+
+func humanizeSLAType(slaType string) string {
+	switch slaType {
+	case "all":
+		return "Calendar Days"
+	case "onlyBusinessDays":
+		return "Business Days"
+	default:
+		if len(slaType) == 0 {
+			return slaType
+		}
+		return strings.ToUpper(slaType[:1]) + slaType[1:]
 	}
 }
