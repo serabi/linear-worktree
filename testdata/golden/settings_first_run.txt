@@ -1,4 +1,4 @@
-Settings                                                                                        
+  Settings                                                                                        
    [1] Credentials    [2] Worktree    [3] Launch                                                  
  ─────────────────────────────────────────────────                                                
                                                                                                   
@@ -12,4 +12,4 @@ Settings
    Add multiple teams separated by commas. First team is your default. Press 1-9 from the issue   
    list to switch between teams.                                                                  
                                                                                                   
-  Tab: next field  Enter: save  1/2/3: switch tab  Esc: cancel
+  Tab: next field  Enter: save  1/2/3: switch tab  Esc: cancel                                    
