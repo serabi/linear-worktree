@@ -1,0 +1,91 @@
+name: Release Reminder
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const tags = await github.rest.repos.listTags({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 1,
+            });
+
+            let since;
+            if (tags.data.length > 0) {
+              const tagCommit = await github.rest.git.getCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: tags.data[0].commit.sha,
+              });
+              since = tagCommit.data.committer.date;
+            } else {
+              since = '2000-01-01T00:00:00Z';
+            }
+
+            const pulls = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'closed',
+              base: 'main',
+              sort: 'updated',
+              direction: 'desc',
+              per_page: 100,
+            });
+
+            const mergedSinceTag = pulls.data.filter(
+              (pr) => pr.merged_at && new Date(pr.merged_at) > new Date(since)
+            );
+
+            console.log(`PRs merged since last tag: ${mergedSinceTag.length}`);
+
+            if (mergedSinceTag.length < 5) {
+              console.log('Below threshold, skipping.');
+              return;
+            }
+
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'release-reminder',
+              per_page: 1,
+            });
+
+            if (issues.data.length > 0) {
+              console.log(`Reminder issue already open: #${issues.data[0].number}`);
+              return;
+            }
+
+            const prList = mergedSinceTag
+              .map((pr) => `- #${pr.number} ${pr.title}`)
+              .join('\n');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Release reminder: ${mergedSinceTag.length} PRs merged since last tag`,
+              body: [
+                `There have been **${mergedSinceTag.length}** PRs merged to main since the last release.`,
+                '',
+                'Merged PRs:',
+                prList,
+                '',
+                'Consider tagging a new release:',
+                '```',
+                'git tag v0.X.0 && git push origin v0.X.0',
+                '```',
+              ].join('\n'),
+              labels: ['release-reminder'],
+            });
