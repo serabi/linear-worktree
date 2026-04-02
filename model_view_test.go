@@ -32,7 +32,7 @@ func viewContent(m Model) string {
 func normalizeView(s string) string {
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	s = ansi.Strip(s)
-	return strings.TrimSpace(s) + "\n"
+	return s
 }
 
 func goldenPath(name string) string {

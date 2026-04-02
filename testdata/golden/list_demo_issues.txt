@@ -1,4 +1,6 @@
-ENG > [Assigned to me]                                                                   
+                                                                                             
+                                                                                             
+    ENG > [Assigned to me]                                                                   
                                                                                              
  │ ● ▲ ENG-142 Add rate limiting to public API endpoints                                     
  │ Alex | Platform Hardening | backend | security                                            
@@ -34,4 +36,4 @@ ENG > [Assigned to me]
                                                                                              
   ENG | 2 issues | Assigned to me | Updated                                                  
   ○ Backlog ○ Todo ● In Progress ✓ Done  ▲ Urgent ▲ High ■ Med ▼ Low                         
-  enter:detail  c:claude  p:project  L:labels  f:filter  o:sort  s:settings(+teams)  ?:help
+  enter:detail  c:claude  p:project  L:labels  f:filter  o:sort  s:settings(+teams)  ?:help  
