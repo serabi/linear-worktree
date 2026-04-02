@@ -144,7 +144,7 @@ func (m Model) writeDetailMetadata(b *strings.Builder, issue *Issue, ctx detailR
 	if issue.DueDate != nil {
 		b.WriteString(ctx.field("Due", formatDueDate(*issue.DueDate, ctx)))
 	}
-	if issue.SLABreachesAt != nil || issue.SLAStartedAt != nil {
+	if issue.SLABreachesAt != nil || issue.SLAStartedAt != nil || issue.SLAType != nil {
 		if issue.SLABreachesAt != nil {
 			breachStr := formatSLABreach(*issue.SLABreachesAt, issue.SLAHighRiskAt, issue.SLAMediumRiskAt, ctx)
 			b.WriteString(ctx.field("SLA Breach", breachStr))
