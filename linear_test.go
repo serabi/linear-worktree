@@ -373,7 +373,9 @@ func TestLinearClientGetIssuesWithNoProject(t *testing.T) {
 }
 
 func TestLinearClientGetLabels(t *testing.T) {
+	callCount := 0
 	server := mockLinearServer(func(query string, vars map[string]any) (int, interface{}) {
+		callCount++
 		if vars["teamID"] != "team-1" {
 			t.Errorf("expected teamID 'team-1', got %v", vars["teamID"])
 		}
@@ -408,6 +410,9 @@ func TestLinearClientGetLabels(t *testing.T) {
 	}
 	if labels[0].Color != "#ff0000" {
 		t.Errorf("expected #ff0000, got %s", labels[0].Color)
+	}
+	if callCount != 1 {
+		t.Errorf("expected 1 API call (no pagination needed), got %d", callCount)
 	}
 }
 

@@ -509,7 +509,7 @@ func (lc *LinearClient) GetLabels(teamID string) ([]IssueLabel, error) {
 	var all []IssueLabel
 	var after string
 
-	for {
+	for range 5 {
 		var result struct {
 			IssueLabels struct {
 				Nodes    []IssueLabel `json:"nodes"`
@@ -528,7 +528,6 @@ func (lc *LinearClient) GetLabels(teamID string) ([]IssueLabel, error) {
 					filter: { team: { id: { eq: $teamID } } }
 					first: 50
 					after: $after
-					orderBy: updatedAt
 				) {
 					nodes { id name color }
 					pageInfo { hasNextPage endCursor }

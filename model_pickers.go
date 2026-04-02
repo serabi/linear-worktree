@@ -38,9 +38,10 @@ func (m *Model) showProjectPicker() tea.Cmd {
 }
 
 func (m *Model) showLabelPicker() tea.Cmd {
-	if len(m.labels) == 0 {
-		m.statusMsg = "Labels loading..."
-		return nil
+	if m.labels == nil {
+		m.loading = true
+		m.loadingLabel = "Loading labels..."
+		return tea.Batch(m.fetchLabels(), m.spinner.Tick)
 	}
 	options := []huh.Option[string]{
 		huh.NewOption("All issues", ""),

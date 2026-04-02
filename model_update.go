@@ -239,7 +239,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.loading = true
 		m.loadingLabel = fmt.Sprintf("Loading %s...", m.cfg.TeamKey)
-		return m, tea.Batch(m.fetchIssues(), m.fetchProjects(), m.fetchLabels(), m.fetchWorkflowStates(), m.spinner.Tick)
+		return m, tea.Batch(m.fetchIssues(), m.fetchProjects(), m.fetchWorkflowStates(), m.spinner.Tick)
 
 	case setupCompleteMsg:
 		m.cfg = msg.cfg
@@ -250,7 +250,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.keys.TeamSwitch.SetEnabled(len(m.cfg.Teams) > 1)
 		m.updateListTitle()
 		m.recreatePaneManagerIfNeeded()
-		cmds := []tea.Cmd{m.fetchIssues(), m.fetchWorktrees(), m.fetchViewer(), m.fetchProjects(), m.fetchLabels()}
+		cmds := []tea.Cmd{m.fetchIssues(), m.fetchWorktrees(), m.fetchViewer(), m.fetchProjects()}
 		if m.useCmux {
 			cmds = append(cmds, m.startStatusPoll())
 		}
@@ -275,11 +275,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case labelsLoadedMsg:
+		m.loading = false
 		if msg.teamID != m.cfg.TeamID {
 			return m, nil
 		}
-		if msg.err == nil {
-			m.labels = msg.labels
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("Error loading labels: %v", msg.err)
+			return m, nil
+		}
+		m.labels = msg.labels
+		if m.view == viewList {
+			return m, m.showLabelPicker()
 		}
 		return m, nil
 
