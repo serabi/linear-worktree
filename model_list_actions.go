@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
 )
 
 func (m *Model) cycleFilter() (tea.Model, tea.Cmd) {
@@ -139,8 +139,8 @@ func (m *Model) showSelectedIssueDetail() (tea.Model, tea.Cmd) {
 	m.view = viewDetail
 	m.detailIssue = issue
 	m.detailHistory = nil
-	m.detailViewport.Width = m.width - 6
-	m.detailViewport.Height = m.height - 6
+	m.detailViewport.SetWidth(m.width - 6)
+	m.detailViewport.SetHeight(m.height - 6)
 	m.loading = true
 	m.loadingLabel = "Loading..."
 	cmds := []tea.Cmd{m.buildDetailContentCmd(issue), m.spinner.Tick}
@@ -149,7 +149,6 @@ func (m *Model) showSelectedIssueDetail() (tea.Model, tea.Cmd) {
 	}
 	return m, tea.Batch(cmds...)
 }
-
 
 func (m *Model) beginComment(issue *Issue) (tea.Model, tea.Cmd) {
 	m.view = viewComment
@@ -242,7 +241,7 @@ func (m *Model) openSelectedIssueLinks() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) updateListCursor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) updateListCursor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	prevIndex := m.list.Index()
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)

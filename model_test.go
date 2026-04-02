@@ -4,11 +4,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/huh"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
 )
 
 func requireModelPtr(t *testing.T, model tea.Model) *Model {
@@ -284,13 +285,9 @@ func TestSortPickerEnterCompletesSelection(t *testing.T) {
 
 	// Process the init cmd so the form becomes interactive
 	result, cmd := m.Update(initCmd())
-	model := requireModelPtr(t, result)
-	for cmd != nil {
-		result, cmd = model.Update(cmd())
-		model = requireModelPtr(t, result)
-	}
+	model := drainCmds(t, requireModelPtr(t, result), cmd)
 
-	result, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	result, cmd = model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = requireModelPtr(t, result)
 
 	// Process follow-up messages until the form completes
@@ -552,7 +549,7 @@ func TestDetailBackNavigationFetchesComments(t *testing.T) {
 	m.detailHistory = []*Issue{prevIssue}
 	m.cachedCommentID = currIssue.ID
 
-	result, cmd := m.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Runes: []rune{'d'}}))
+	result, cmd := m.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
 	updated := result.(*Model)
 
 	if updated.detailIssue.ID != prevIssue.ID {
@@ -582,7 +579,7 @@ func TestDetailBackNavigationSkipsFetchWhenCached(t *testing.T) {
 	m.detailHistory = []*Issue{prevIssue}
 	m.cachedCommentID = prevIssue.ID // already cached
 
-	result, cmd := m.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Runes: []rune{'d'}}))
+	result, cmd := m.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
 	updated := result.(*Model)
 
 	if updated.detailIssue.ID != prevIssue.ID {
@@ -621,14 +618,14 @@ func TestDetailCommentSortToggle(t *testing.T) {
 	}
 
 	// Press 'o' to toggle
-	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	result, _ := m.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
 	model := requireModelPtr(t, result)
 	if !model.commentSortAsc {
 		t.Fatal("expected commentSortAsc to be true after toggle")
 	}
 
 	// Press 'o' again to toggle back
-	result, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	result, _ = model.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
 	model = requireModelPtr(t, result)
 	if model.commentSortAsc {
 		t.Fatal("expected commentSortAsc to be false after second toggle")
@@ -643,12 +640,12 @@ func TestDetailCommentSortOrder(t *testing.T) {
 	issue := &Issue{ID: "issue-1", Identifier: "TEST-1", Title: "Test"}
 	m.cachedCommentID = "issue-1"
 	m.cachedComments = []Comment{
-		{Body: "AAA_FIRST", User: struct {
+		{Body: "AAA FIRST", User: struct {
 			ID          string `json:"id"`
 			DisplayName string `json:"displayName"`
 			Name        string `json:"name"`
 		}{ID: "u1", Name: "Alice"}, CreatedAt: "2025-01-01T00:00:00Z"},
-		{Body: "ZZZ_LAST", User: struct {
+		{Body: "ZZZ LAST", User: struct {
 			ID          string `json:"id"`
 			DisplayName string `json:"displayName"`
 			Name        string `json:"name"`
@@ -658,8 +655,10 @@ func TestDetailCommentSortOrder(t *testing.T) {
 	// Ascending: first comment appears before last
 	m.commentSortAsc = true
 	content := m.buildDetailContent(issue, 70)
-	firstIdx := strings.Index(content, "AAA_FIRST")
-	lastIdx := strings.Index(content, "ZZZ_LAST")
+	ansiPattern := regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	content = ansiPattern.ReplaceAllString(content, "")
+	firstIdx := strings.Index(content, "AAA FIRST")
+	lastIdx := strings.Index(content, "ZZZ LAST")
 	if firstIdx < 0 || lastIdx < 0 {
 		t.Fatal("expected both comments in output")
 	}
@@ -670,8 +669,9 @@ func TestDetailCommentSortOrder(t *testing.T) {
 	// Descending: last comment appears before first
 	m.commentSortAsc = false
 	content = m.buildDetailContent(issue, 70)
-	firstIdx = strings.Index(content, "AAA_FIRST")
-	lastIdx = strings.Index(content, "ZZZ_LAST")
+	content = ansiPattern.ReplaceAllString(content, "")
+	firstIdx = strings.Index(content, "AAA FIRST")
+	lastIdx = strings.Index(content, "ZZZ LAST")
 	if firstIdx < lastIdx {
 		t.Error("descending sort: last comment should appear before first")
 	}
@@ -687,7 +687,7 @@ func TestDetailRefreshComments(t *testing.T) {
 	m.view = viewDetail
 
 	// Press 'r' to refresh
-	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	result, cmd := m.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
 	model := requireModelPtr(t, result)
 
 	if !model.loading {
@@ -706,7 +706,7 @@ func TestDetailRefreshNoIssue(t *testing.T) {
 	m.view = viewDetail
 	m.detailIssue = nil
 
-	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	result, cmd := m.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
 	model := requireModelPtr(t, result)
 
 	if model.loading {
@@ -727,14 +727,10 @@ func TestSortPickerEscCancels(t *testing.T) {
 
 	// Process init
 	result, cmd := m.Update(initCmd())
-	model := requireModelPtr(t, result)
-	for cmd != nil {
-		result, cmd = model.Update(cmd())
-		model = requireModelPtr(t, result)
-	}
+	model := drainCmds(t, requireModelPtr(t, result), cmd)
 
 	// Press Esc
-	result, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	result, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	model = requireModelPtr(t, result)
 
 	if model.view != viewList {

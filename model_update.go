@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textarea"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/huh"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
 )
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -38,14 +38,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if m.view == viewDetail && m.detailIssue != nil {
-			contentWidth := msg.Width - 6
-			m.detailViewport.Width = contentWidth
-			m.detailViewport.Height = msg.Height - 6
+			contentWidth := max(1, msg.Width-6)
+			contentHeight := max(1, msg.Height-6)
+			m.detailViewport.SetWidth(contentWidth)
+			m.detailViewport.SetHeight(contentHeight)
 			m.detailViewport.SetContent(m.buildDetailContent(m.detailIssue, contentWidth))
 		}
 		return m, nil
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if m.confirm != nil {
 			switch msg.String() {
 			case "y":
@@ -331,8 +332,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingHistoryIssue = nil
 		}
 		m.detailIssue = msg.issue
-		m.detailViewport.Width = m.width - 6
-		m.detailViewport.Height = m.height - 6
+		m.detailViewport.SetWidth(max(1, m.width-6))
+		m.detailViewport.SetHeight(max(1, m.height-6))
 		m.view = viewDetail
 		m.loading = true
 		m.loadingLabel = "Loading..."
@@ -421,7 +422,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
 		if m.showHelp {
@@ -517,7 +518,7 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m.updateListCursor(msg)
 }
 
-func (m *Model) updateComment(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) updateComment(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.view = viewDetail
@@ -550,7 +551,7 @@ func (m *Model) updateComment(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) updateDetail(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "d":
 		if len(m.detailHistory) > 0 {
@@ -614,7 +615,7 @@ func (m *Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *Model) updateLaunch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) updateLaunch(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.view = viewList
@@ -669,7 +670,7 @@ func (m *Model) updateLaunch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *Model) updatePrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) updatePrompt(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.view = viewLaunch

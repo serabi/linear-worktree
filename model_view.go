@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
+	"charm.land/lipgloss/v2"
 )
 
-func (m Model) View() string {
+func (m Model) View() tea.View {
 	var base string
 	switch m.view {
 	case viewSettings:
@@ -49,10 +50,12 @@ func (m Model) View() string {
 					m.confirm.message + "\n\n" +
 					yKey + " yes  " + nKey + " no",
 			)
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, dialog)
+		base = lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, dialog)
 	}
 
-	return base
+	v := tea.NewView(base)
+	v.AltScreen = true
+	return v
 }
 
 func (m Model) renderTeamTabBar() string {
@@ -133,7 +136,7 @@ func (m Model) viewList() string {
 		if helpWidth < 40 {
 			helpWidth = 40
 		}
-		m.help.Width = helpWidth
+		m.help.SetWidth(helpWidth)
 		helpContent := m.help.View(m.keys)
 		legend := renderLegend()
 		helpBox := lipgloss.NewStyle().

@@ -2,11 +2,15 @@ package main
 
 import (
 	"fmt"
+	"image/color"
+	"os"
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/glamour"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/glamour/v2"
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/compat"
+	"golang.org/x/term"
 )
 
 type detailRenderContext struct {
@@ -52,8 +56,15 @@ func (ctx detailRenderContext) field(label, value string) string {
 }
 
 func (m Model) renderMarkdown(text string, width int) string {
+	style := "notty"
+	if term.IsTerminal(int(os.Stdout.Fd())) {
+		style = "light"
+		if compat.HasDarkBackground {
+			style = "dark"
+		}
+	}
 	renderer, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
+		glamour.WithStandardStyle(style),
 		glamour.WithWordWrap(width-4),
 	)
 	if err != nil {
@@ -84,7 +95,7 @@ func (m Model) writeDetailHeader(b *strings.Builder, issue *Issue, ctx detailRen
 	b.WriteString(issueIdentStyle.Render(issue.Identifier))
 	b.WriteString("  ")
 
-	var stateColor lipgloss.TerminalColor = yellowColor
+	var stateColor color.Color = yellowColor
 	if issue.State.Color != "" {
 		stateColor = lipgloss.Color(issue.State.Color)
 	}
