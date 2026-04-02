@@ -38,9 +38,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if m.view == viewDetail && m.detailIssue != nil {
-			contentWidth := msg.Width - 6
+			contentWidth := max(1, msg.Width-6)
+			contentHeight := max(1, msg.Height-6)
 			m.detailViewport.SetWidth(contentWidth)
-			m.detailViewport.SetHeight(msg.Height - 6)
+			m.detailViewport.SetHeight(contentHeight)
 			m.detailViewport.SetContent(m.buildDetailContent(m.detailIssue, contentWidth))
 		}
 		return m, nil
@@ -331,8 +332,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingHistoryIssue = nil
 		}
 		m.detailIssue = msg.issue
-		m.detailViewport.SetWidth(m.width - 6)
-		m.detailViewport.SetHeight(m.height - 6)
+		m.detailViewport.SetWidth(max(1, m.width-6))
+		m.detailViewport.SetHeight(max(1, m.height-6))
 		m.view = viewDetail
 		m.loading = true
 		m.loadingLabel = "Loading..."
