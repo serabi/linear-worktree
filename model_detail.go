@@ -401,9 +401,9 @@ func formatSLABreach(breachesAt string, highRiskAt, mediumRiskAt *string, ctx de
 	case time.Until(t) <= 24*time.Hour:
 		return ctx.blocker(timeStr)
 	case highRiskAt != nil && isTimePast(*highRiskAt):
-		return lipgloss.NewStyle().Foreground(yellowColor).Render(timeStr)
-	case mediumRiskAt != nil && isTimePast(*mediumRiskAt):
 		return lipgloss.NewStyle().Foreground(orangeColor).Render(timeStr)
+	case mediumRiskAt != nil && isTimePast(*mediumRiskAt):
+		return lipgloss.NewStyle().Foreground(yellowColor).Render(timeStr)
 	default:
 		return timeStr
 	}
