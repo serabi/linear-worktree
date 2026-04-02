@@ -214,6 +214,7 @@ func (lc *LinearClient) GetTeamByKey(key string) (*Team, error) {
 const issueListFields = `
 	id identifier title description priority url branchName dueDate
 	estimate createdAt updatedAt
+	slaStartedAt slaMediumRiskAt slaHighRiskAt slaBreachesAt slaType
 	state { name type color }
 	assignee { id name displayName }
 	labels { nodes { id name color } }
@@ -243,7 +244,7 @@ func issueSortClause(sort SortMode) (queryVars string, orderClause string) {
 	switch sort {
 	case SortCreatedAt:
 		return "$after: String", "after: $after\n\t\t\t\torderBy: createdAt"
-	case SortPriority:
+	case SortPriority, SortSLAStatus:
 		return "$after: String, $sort: [IssueSortInput!]", "after: $after\n\t\t\t\tsort: $sort"
 	default:
 		return "$after: String", "after: $after\n\t\t\t\torderBy: updatedAt"
@@ -254,9 +255,14 @@ func issueSortVars(sort SortMode, after string, vars map[string]any) {
 	if after != "" {
 		vars["after"] = after
 	}
-	if sort == SortPriority {
+	switch sort {
+	case SortPriority:
 		vars["sort"] = []map[string]any{
 			{"priority": map[string]any{"order": "Ascending"}},
+		}
+	case SortSLAStatus:
+		vars["sort"] = []map[string]any{
+			{"slaStatus": map[string]any{"order": "Ascending", "nulls": "last"}},
 		}
 	}
 }
@@ -855,6 +861,7 @@ const (
 	SortUpdatedAt SortMode = iota
 	SortCreatedAt
 	SortPriority
+	SortSLAStatus
 )
 
 func (s SortMode) String() string {
@@ -865,11 +872,13 @@ func (s SortMode) String() string {
 		return "Created"
 	case SortPriority:
 		return "Priority"
+	case SortSLAStatus:
+		return "SLA"
 	default:
 		return "?"
 	}
 }
 
 func (s SortMode) Next() SortMode {
-	return (s + 1) % 3
+	return (s + 1) % 4
 }

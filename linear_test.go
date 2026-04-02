@@ -619,7 +619,8 @@ func TestSortModeNext(t *testing.T) {
 	}{
 		{SortUpdatedAt, SortCreatedAt},
 		{SortCreatedAt, SortPriority},
-		{SortPriority, SortUpdatedAt},
+		{SortPriority, SortSLAStatus},
+		{SortSLAStatus, SortUpdatedAt},
 	}
 	for _, tt := range tests {
 		result := tt.mode.Next()
@@ -637,6 +638,7 @@ func TestSortModeString(t *testing.T) {
 		{SortUpdatedAt, "Updated"},
 		{SortCreatedAt, "Created"},
 		{SortPriority, "Priority"},
+		{SortSLAStatus, "SLA"},
 		{SortMode(99), "?"},
 	}
 	for _, tt := range tests {

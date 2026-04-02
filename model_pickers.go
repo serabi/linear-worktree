@@ -252,6 +252,7 @@ func (m *Model) showSortPicker() tea.Cmd {
 		huh.NewOption("Recently updated", "updated"),
 		huh.NewOption("Recently created", "created"),
 		huh.NewOption("Priority", "priority"),
+		huh.NewOption("SLA status", "sla"),
 	}
 
 	m.sortForm = huh.NewForm(
@@ -278,6 +279,8 @@ func (m *Model) handleSortSelected() (tea.Model, tea.Cmd) {
 		m.sortMode = SortCreatedAt
 	case "priority":
 		m.sortMode = SortPriority
+	case "sla":
+		m.sortMode = SortSLAStatus
 	default:
 		return m, nil
 	}
