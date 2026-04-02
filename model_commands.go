@@ -134,6 +134,22 @@ func (m Model) changeStateCmd(issueID, stateID, identifier string) tea.Cmd {
 	}
 }
 
+func (m Model) buildDetailContentCmd(issue *Issue) tea.Cmd {
+	contentWidth := m.width - 6
+	return func() tea.Msg {
+		content := m.buildDetailContent(issue, contentWidth)
+		return detailContentMsg{issueID: issue.ID, content: content}
+	}
+}
+
+func (m Model) navigateToIssueCmd(issueID string) tea.Cmd {
+	return func() tea.Msg {
+		client := NewLinearClient(m.cfg.LinearAPIKey)
+		issue, err := client.GetIssueByID(issueID)
+		return issueNavigatedMsg{issue: issue, err: err}
+	}
+}
+
 func (m Model) detectBranchIssue() tea.Cmd {
 	return func() tea.Msg {
 		out, err := osexec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").Output()

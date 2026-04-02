@@ -25,8 +25,8 @@ func (m Model) View() string {
 		base = m.viewPicker("Select Project", m.projectForm)
 	case viewStatePicker:
 		base = m.viewPicker("Transition State", m.stateForm)
-	case viewLinkPicker:
-		base = m.viewPicker("Open Link", m.linkPickerForm)
+	case viewLinkList:
+		base = m.viewLinkList()
 	case viewFilterPicker:
 		base = m.viewPicker("Filter Issues", m.filterForm)
 	case viewSortPicker:
@@ -155,29 +155,33 @@ func (m Model) viewDetail() string {
 
 	header := titleStyle.Render(fmt.Sprintf("Issue: %s", identifier))
 
+	backLabel := "d:back"
+	if len(m.detailHistory) > 0 {
+		backLabel = "d:prev issue"
+	}
+
 	sortLabel := "o:oldest"
 	if !m.commentSortAsc {
 		sortLabel = "o:newest"
 	}
 	detailKeys := func(prefix string) string {
-		line := fmt.Sprintf("%sd:back  j/k:scroll  m:comment  r:refresh  %s  s:status  g:open  q:quit", prefix, sortLabel)
-		// If the line fits, use one row; otherwise split into two rows
+		line := fmt.Sprintf("%s%s  j/k:scroll  l:links  m:comment  r:refresh  %s  s:status  g:open  q:quit", prefix, backLabel, sortLabel)
 		if lipgloss.Width(line)+2 <= m.width {
 			return statusBarStyle.Render(line)
 		}
-		row1 := fmt.Sprintf("%sd:back  j/k:scroll  m:comment  r:refresh  %s", prefix, sortLabel)
+		row1 := fmt.Sprintf("%s%s  j/k:scroll  l:links  m:comment  r:refresh  %s", prefix, backLabel, sortLabel)
 		row2 := "s:status  g:open  q:quit"
 		return statusBarStyle.Render(row1 + "\n" + row2)
 	}
 
 	status := detailKeys("")
 
-	if m.loading && m.detailIssue != nil && m.cachedCommentID != m.detailIssue.ID {
+	if m.loading && m.detailIssue != nil {
 		loadingBox := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("#7C3AED")).
 			Padding(1, 3).
-			Render(m.spinner.View() + "  Loading comments...")
+			Render(m.spinner.View() + "  " + m.loadingLabel)
 		overlay := lipgloss.Place(m.width, m.height-4, lipgloss.Center, lipgloss.Center, loadingBox)
 		return appStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, overlay, status))
 	}
@@ -219,6 +223,11 @@ func (m Model) renderSlotBar() string {
 		)
 	}
 	return lipgloss.NewStyle().Padding(0, 1).Render(strings.Join(parts, "  "))
+}
+
+func (m Model) viewLinkList() string {
+	status := statusBarStyle.Render("[Enter] open  [Esc] back")
+	return appStyle.Render(lipgloss.JoinVertical(lipgloss.Left, m.linkList.View(), status))
 }
 
 func (m Model) viewLaunch() string {

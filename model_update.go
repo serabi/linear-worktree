@@ -25,6 +25,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			listHeight -= 2
 		}
 		m.list.SetSize(msg.Width-2, listHeight)
+		m.linkList.SetSize(msg.Width-4, msg.Height-4)
 		if m.settingsTabs[0] != nil {
 			w := msg.Width - 4
 			if w < 60 {
@@ -100,8 +101,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSortPicker(msg)
 		case viewSearch:
 			return m.updateSearch(msg)
-		case viewLinkPicker:
-			return m.updateLinkPicker(msg)
+		case viewLinkList:
+			return m.updateLinkList(msg)
 		default:
 			return m.updateList(msg)
 		}
@@ -179,18 +180,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case commentsLoadedMsg:
-		if m.loadingLabel == "Loading comments..." {
-			m.loading = false
+	case detailContentMsg:
+		if m.view == viewDetail && m.detailIssue != nil && m.detailIssue.ID == msg.issueID {
+			m.detailViewport.SetContent(msg.content)
+			m.detailViewport.GotoTop()
+			if m.cachedCommentID == msg.issueID {
+				m.loading = false
+			}
 		}
+		return m, nil
+
+	case commentsLoadedMsg:
 		if msg.err == nil {
 			m.cachedComments = msg.comments
 			m.cachedCommentID = msg.issueID
 			if m.view == viewDetail && m.detailIssue != nil && m.detailIssue.ID == msg.issueID {
-				contentWidth := m.width - 6
-				m.detailViewport.SetContent(m.buildDetailContent(m.detailIssue, contentWidth))
+				return m, m.buildDetailContentCmd(m.detailIssue)
 			}
 		}
+		m.loading = false
 		return m, nil
 
 	case launchReadyMsg:
@@ -311,6 +319,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusMsg = fmt.Sprintf("Search: %q (%d results)", m.searchTerm, len(msg.issues))
 		return m, nil
 
+	case issueNavigatedMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.pendingHistoryIssue = nil
+			m.statusMsg = fmt.Sprintf("Navigation error: %v", msg.err)
+			return m, nil
+		}
+		if m.pendingHistoryIssue != nil {
+			m.detailHistory = append(m.detailHistory, m.pendingHistoryIssue)
+			m.pendingHistoryIssue = nil
+		}
+		m.detailIssue = msg.issue
+		m.detailViewport.Width = m.width - 6
+		m.detailViewport.Height = m.height - 6
+		m.view = viewDetail
+		m.loading = true
+		m.loadingLabel = "Loading..."
+		cmds := []tea.Cmd{m.buildDetailContentCmd(msg.issue), m.spinner.Tick}
+		if msg.issue.ID != m.cachedCommentID {
+			cmds = append(cmds, m.fetchCommentsCmd(msg.issue.ID))
+		}
+		return m, tea.Batch(cmds...)
+
 	case branchIssueFoundMsg:
 		if msg.issue != nil {
 			for i, item := range m.list.Items() {
@@ -361,22 +392,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.stateForm.State == huh.StateCompleted {
 			return m.handleStateSelected()
-		}
-		return m, cmd
-	}
-	if m.view == viewLinkPicker && m.linkPickerForm != nil {
-		form, cmd := m.linkPickerForm.Update(msg)
-		if f, ok := form.(*huh.Form); ok {
-			m.linkPickerForm = f
-		}
-		if m.linkPickerForm.State == huh.StateCompleted {
-			selected := m.linkSelected
-			m.linkPickerForm = nil
-			m.view = viewList
-			if selected != "" {
-				openBrowser(selected)
-			}
-			return m, nil
 		}
 		return m, cmd
 	}
@@ -538,6 +553,18 @@ func (m *Model) updateComment(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "d":
+		if len(m.detailHistory) > 0 {
+			prev := m.detailHistory[len(m.detailHistory)-1]
+			m.detailHistory = m.detailHistory[:len(m.detailHistory)-1]
+			m.detailIssue = prev
+			m.loading = true
+			m.loadingLabel = "Loading..."
+			cmds := []tea.Cmd{m.buildDetailContentCmd(prev), m.spinner.Tick}
+			if prev.ID != m.cachedCommentID {
+				cmds = append(cmds, m.fetchCommentsCmd(prev.ID))
+			}
+			return m, tea.Batch(cmds...)
+		}
 		m.view = viewList
 		m.detailIssue = nil
 		m.loading = false
@@ -550,6 +577,11 @@ func (m *Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "g":
 		if m.detailIssue != nil && m.detailIssue.URL != "" {
 			openBrowser(m.detailIssue.URL)
+		}
+		return m, nil
+	case "l":
+		if m.detailIssue != nil {
+			return m.showDetailLinks()
 		}
 		return m, nil
 	case "s":

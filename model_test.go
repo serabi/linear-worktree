@@ -517,6 +517,82 @@ func TestBuildPromptInvalidTemplate(t *testing.T) {
 	}
 }
 
+func TestTruncateURL(t *testing.T) {
+	tests := []struct {
+		url    string
+		maxLen int
+		want   string
+	}{
+		{"https://example.com/path", 30, "example.com/path"},
+		{"https://example.com/very/long/path/that/exceeds/the/limit", 30, "example.com/very/long/path/th…"},
+		{"https://example.com/page#section", 40, "example.com/page#section"},
+		{"not-a-url", 5, "not-…"},
+		{"short", 10, "short"},
+		{"https://example.com/path", 0, "https://example.com/path"},
+		{"https://example.com/path", -1, "https://example.com/path"},
+	}
+	for _, tt := range tests {
+		got := truncateURL(tt.url, tt.maxLen)
+		if got != tt.want {
+			t.Errorf("truncateURL(%q, %d) = %q, want %q", tt.url, tt.maxLen, got, tt.want)
+		}
+	}
+}
+
+func TestDetailBackNavigationFetchesComments(t *testing.T) {
+	m := NewModel(DefaultConfig())
+	m.view = viewDetail
+	m.width = 120
+	m.height = 40
+
+	prevIssue := &Issue{ID: "issue-prev", Identifier: "TST-1", Title: "Previous"}
+	currIssue := &Issue{ID: "issue-curr", Identifier: "TST-2", Title: "Current"}
+
+	m.detailIssue = currIssue
+	m.detailHistory = []*Issue{prevIssue}
+	m.cachedCommentID = currIssue.ID
+
+	result, cmd := m.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Runes: []rune{'d'}}))
+	updated := result.(*Model)
+
+	if updated.detailIssue.ID != prevIssue.ID {
+		t.Errorf("expected detailIssue to be prev (%s), got %s", prevIssue.ID, updated.detailIssue.ID)
+	}
+	if len(updated.detailHistory) != 0 {
+		t.Errorf("expected empty detailHistory, got %d entries", len(updated.detailHistory))
+	}
+	if !updated.loading {
+		t.Error("expected loading=true when cachedCommentID differs from restored issue")
+	}
+	if cmd == nil {
+		t.Error("expected non-nil cmd to fetch comments")
+	}
+}
+
+func TestDetailBackNavigationSkipsFetchWhenCached(t *testing.T) {
+	m := NewModel(DefaultConfig())
+	m.view = viewDetail
+	m.width = 120
+	m.height = 40
+
+	prevIssue := &Issue{ID: "issue-prev", Identifier: "TST-1", Title: "Previous"}
+	currIssue := &Issue{ID: "issue-curr", Identifier: "TST-2", Title: "Current"}
+
+	m.detailIssue = currIssue
+	m.detailHistory = []*Issue{prevIssue}
+	m.cachedCommentID = prevIssue.ID // already cached
+
+	result, cmd := m.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Runes: []rune{'d'}}))
+	updated := result.(*Model)
+
+	if updated.detailIssue.ID != prevIssue.ID {
+		t.Errorf("expected detailIssue to be restored to prev, got %s", updated.detailIssue.ID)
+	}
+	if cmd == nil {
+		t.Error("expected cmd for async content rendering")
+	}
+}
+
 func TestDetailCommentSortToggle(t *testing.T) {
 	m := NewModel(Config{TeamKey: "TEST"})
 	m.width = 80

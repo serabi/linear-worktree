@@ -539,6 +539,28 @@ func (lc *LinearClient) SearchIssues(term, teamID string, first int, after strin
 	return result.SearchIssues.Nodes, result.SearchIssues.PageInfo, err
 }
 
+func (lc *LinearClient) GetIssueByID(id string) (*Issue, error) {
+	q := fmt.Sprintf(`
+		query($id: String!) {
+			issue(id: $id) {
+				%s
+			}
+		}`, issueFields)
+
+	var result struct {
+		Issue *Issue `json:"issue"`
+	}
+
+	err := lc.queryWithVars(q, map[string]any{"id": id}, &result)
+	if err != nil {
+		return nil, err
+	}
+	if result.Issue == nil {
+		return nil, fmt.Errorf("issue not found: %s", id)
+	}
+	return result.Issue, nil
+}
+
 func (lc *LinearClient) SearchIssueByBranch(branchName string) (*Issue, error) {
 	q := fmt.Sprintf(`
 		query($branchName: String!) {
