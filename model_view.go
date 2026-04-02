@@ -274,7 +274,13 @@ func (m Model) viewSettings() string {
 	header := titleStyle.Render("Settings")
 	tabBar := m.renderSettingsTabBar()
 	body := m.activeSettingsForm().View()
-	help := statusBarStyle.Render("Tab: next field  Enter: save  1/2/3: switch tab  Esc: cancel")
+	helpText := "Tab: next field  Enter: save  1/2/3: switch tab"
+	if m.settingsFirstRun {
+		helpText += "  (complete setup to continue)"
+	} else {
+		helpText += "  Esc: cancel"
+	}
+	help := statusBarStyle.Render(helpText)
 	return appStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, tabBar, "", body, "", help))
 }
 
