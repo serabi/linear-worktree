@@ -372,6 +372,63 @@ func TestLinearClientGetIssuesWithNoProject(t *testing.T) {
 	}
 }
 
+func TestLinearClientGetLabels(t *testing.T) {
+	server := mockLinearServer(func(query string, vars map[string]any) (int, interface{}) {
+		return 200, map[string]interface{}{
+			"issueLabels": map[string]interface{}{
+				"nodes": []map[string]interface{}{
+					{"id": "label-1", "name": "Bug", "color": "#ff0000"},
+					{"id": "label-2", "name": "Feature", "color": "#00ff00"},
+					{"id": "label-3", "name": "Improvement", "color": "#0000ff"},
+				},
+			},
+		}
+	})
+	defer server.Close()
+
+	labels, err := testClient(server).GetLabels("team-1")
+	if err != nil {
+		t.Fatalf("GetLabels() error: %v", err)
+	}
+	if len(labels) != 3 {
+		t.Fatalf("expected 3 labels, got %d", len(labels))
+	}
+	if labels[0].Name != "Bug" {
+		t.Errorf("expected Bug, got %s", labels[0].Name)
+	}
+	if labels[0].Color != "#ff0000" {
+		t.Errorf("expected #ff0000, got %s", labels[0].Color)
+	}
+}
+
+func TestLinearClientGetIssuesByLabel(t *testing.T) {
+	server := mockLinearServer(func(query string, vars map[string]any) (int, interface{}) {
+		return 200, map[string]interface{}{
+			"issues": map[string]interface{}{
+				"nodes": []map[string]interface{}{
+					{"id": "issue-1", "identifier": "TEST-1", "title": "Bug fix"},
+				},
+				"pageInfo": map[string]interface{}{
+					"hasNextPage": false,
+					"endCursor":   "",
+				},
+			},
+		}
+	})
+	defer server.Close()
+
+	issues, pageInfo, err := testClient(server).GetIssuesByLabel("team-1", "label-1", "", FilterAll, SortUpdatedAt)
+	if err != nil {
+		t.Fatalf("GetIssuesByLabel() error: %v", err)
+	}
+	if len(issues) != 1 {
+		t.Fatalf("expected 1 issue, got %d", len(issues))
+	}
+	if pageInfo.HasNextPage {
+		t.Error("expected no next page")
+	}
+}
+
 func TestLinearClientSearchIssues(t *testing.T) {
 	server := mockLinearServer(func(query string, vars map[string]any) (int, interface{}) {
 		if vars["term"] != "auth bug" {

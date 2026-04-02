@@ -505,6 +505,125 @@ func (lc *LinearClient) GetIssuesWithNoProject(teamID string, filter FilterMode,
 	return result.Issues.Nodes, result.Issues.PageInfo, err
 }
 
+func (lc *LinearClient) GetLabels(teamID string) ([]IssueLabel, error) {
+	var result struct {
+		IssueLabels struct {
+			Nodes []IssueLabel `json:"nodes"`
+		} `json:"issueLabels"`
+	}
+
+	err := lc.queryWithVars(`
+		query($teamID: ID!) {
+			issueLabels(
+				filter: { team: { id: { eq: $teamID } } }
+				first: 50
+				orderBy: updatedAt
+			) {
+				nodes { id name color }
+			}
+		}
+	`, map[string]any{"teamID": teamID}, &result)
+	return result.IssueLabels.Nodes, err
+}
+
+func (lc *LinearClient) GetIssuesByLabel(teamID, labelID, after string, filter FilterMode, sort SortMode) ([]Issue, PageInfo, error) {
+	sortVars, orderClause := issueSortClause(sort)
+	q := fmt.Sprintf(`
+		query($teamID: ID!, $labelID: ID!, %s) {
+			issues(
+				filter: { and: [
+					{ team: { id: { eq: $teamID } } },
+					{ labels: { id: { eq: $labelID } } },
+					%s
+				] }
+				first: 50
+				%s
+			) {
+				nodes { %s }
+				pageInfo { hasNextPage endCursor }
+			}
+		}`, sortVars, issueFilterByMode[filter], orderClause, issueListFields)
+
+	var result struct {
+		Issues struct {
+			Nodes    []Issue  `json:"nodes"`
+			PageInfo PageInfo `json:"pageInfo"`
+		} `json:"issues"`
+	}
+
+	vars := map[string]any{"teamID": teamID, "labelID": labelID}
+	issueSortVars(sort, after, vars)
+
+	err := lc.queryWithVars(q, vars, &result)
+	return result.Issues.Nodes, result.Issues.PageInfo, err
+}
+
+func (lc *LinearClient) GetIssuesByProjectAndLabel(teamID, projectID, labelID, after string, filter FilterMode, sort SortMode) ([]Issue, PageInfo, error) {
+	sortVars, orderClause := issueSortClause(sort)
+	q := fmt.Sprintf(`
+		query($teamID: ID!, $projectID: ID!, $labelID: ID!, %s) {
+			issues(
+				filter: { and: [
+					{ team: { id: { eq: $teamID } } },
+					{ project: { id: { eq: $projectID } } },
+					{ labels: { id: { eq: $labelID } } },
+					%s
+				] }
+				first: 50
+				%s
+			) {
+				nodes { %s }
+				pageInfo { hasNextPage endCursor }
+			}
+		}`, sortVars, issueFilterByMode[filter], orderClause, issueListFields)
+
+	var result struct {
+		Issues struct {
+			Nodes    []Issue  `json:"nodes"`
+			PageInfo PageInfo `json:"pageInfo"`
+		} `json:"issues"`
+	}
+
+	vars := map[string]any{"teamID": teamID, "projectID": projectID, "labelID": labelID}
+	issueSortVars(sort, after, vars)
+
+	err := lc.queryWithVars(q, vars, &result)
+	return result.Issues.Nodes, result.Issues.PageInfo, err
+}
+
+func (lc *LinearClient) GetIssuesWithNoProjectAndLabel(teamID, labelID string, filter FilterMode, sort SortMode, after string) ([]Issue, PageInfo, error) {
+	sortVars, orderClause := issueSortClause(sort)
+	q := fmt.Sprintf(`
+		query($teamID: ID!, $labelID: ID!, %s) {
+			issues(
+				filter: { and: [
+					{ team: { id: { eq: $teamID } } },
+					{ project: { null: true } },
+					{ labels: { id: { eq: $labelID } } },
+					%s
+				] }
+				first: 50
+				%s
+			) {
+				nodes { `+issueListFields+` }
+				pageInfo { hasNextPage endCursor }
+			}
+		}`, sortVars, issueFilterByMode[filter], orderClause)
+
+	var result struct {
+		Issues struct {
+			Nodes    []Issue  `json:"nodes"`
+			PageInfo PageInfo `json:"pageInfo"`
+		} `json:"issues"`
+	}
+
+	vars := map[string]any{"teamID": teamID, "labelID": labelID}
+	issueSortVars(sort, after, vars)
+
+	err := lc.queryWithVars(q, vars, &result)
+	return result.Issues.Nodes, result.Issues.PageInfo, err
+}
+
 func (lc *LinearClient) SearchIssues(term, teamID string, first int, after string) ([]Issue, PageInfo, error) {
 	q := fmt.Sprintf(`
 		query($term: String!, $teamID: String, $first: Int, $after: String) {
@@ -655,6 +774,12 @@ type Project struct {
 	Description string  `json:"description"`
 	Progress    float64 `json:"progress"`
 	TargetDate  *string `json:"targetDate"`
+}
+
+type IssueLabel struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
 }
 
 type Viewer struct {

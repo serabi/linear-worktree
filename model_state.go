@@ -302,6 +302,11 @@ type projectsLoadedMsg struct {
 	err      error
 }
 
+type labelsLoadedMsg struct {
+	labels []IssueLabel
+	err    error
+}
+
 type statesLoadedMsg struct {
 	states []WorkflowState
 	err    error
@@ -365,6 +370,7 @@ const (
 	viewSearch
 	viewLinkList
 	viewSortPicker
+	viewLabelPicker
 )
 
 type settingsDraft struct {
@@ -384,10 +390,13 @@ type settingsDraft struct {
 type teamState struct {
 	issues         []Issue
 	projects       []Project
+	labels         []IssueLabel
 	workflowStates []WorkflowState
 	filter         FilterMode
 	projectFilter  *string
 	projectName    string
+	labelFilter    *string
+	labelName      string
 	listIndex      int
 }
 
@@ -442,6 +451,11 @@ type Model struct {
 	projectFilter *string
 	projectName   string
 	projectForm   *huh.Form
+
+	labels      []IssueLabel
+	labelFilter *string
+	labelName   string
+	labelForm   *huh.Form
 
 	workflowStates []WorkflowState
 	stateForm      *huh.Form
@@ -504,6 +518,7 @@ type keyMap struct {
 	Project    key.Binding
 	Assign     key.Binding
 	Unassign   key.Binding
+	Label      key.Binding
 	Links      key.Binding
 	TeamSwitch key.Binding
 	Help       key.Binding
@@ -527,6 +542,7 @@ func defaultKeyMap(multiTeam bool) keyMap {
 		Project:    key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "projects")),
 		Assign:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "assign to me")),
 		Unassign:   key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "unassign")),
+		Label:      key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "labels")),
 		Links:      key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "links")),
 		TeamSwitch: key.NewBinding(key.WithKeys("1", "2", "3", "4", "5", "6", "7", "8", "9"), key.WithHelp("1-9", "switch team"), key.WithDisabled()),
 		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
@@ -539,14 +555,14 @@ func defaultKeyMap(multiTeam bool) keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Claude, k.Detail, k.Project, k.Filter, k.FilterPick, k.Setup, k.Help}
+	return []key.Binding{k.Claude, k.Detail, k.Project, k.Label, k.Filter, k.FilterPick, k.Setup, k.Help}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Navigate, k.Claude, k.Worktree, k.Close},
 		{k.Detail, k.Filter, k.FilterPick, k.Search},
-		{k.Project, k.Assign, k.Unassign, k.Links, k.TeamSwitch},
+		{k.Project, k.Label, k.Assign, k.Unassign, k.Links, k.TeamSwitch},
 		{k.Open, k.Refresh, k.Setup, k.Help, k.Quit},
 	}
 }
@@ -591,11 +607,14 @@ func (m *Model) rebuildList() {
 
 func (m Model) buildStatusLine() string {
 	parts := []string{}
+	scope := m.cfg.TeamKey
 	if m.projectName != "" {
-		parts = append(parts, m.cfg.TeamKey+" > "+m.projectName)
-	} else {
-		parts = append(parts, m.cfg.TeamKey)
+		scope += " > " + m.projectName
 	}
+	if m.labelName != "" {
+		scope += " > " + m.labelName
+	}
+	parts = append(parts, scope)
 	parts = append(parts, fmt.Sprintf("%d issues", len(m.issues)))
 	parts = append(parts, m.filter.String())
 	parts = append(parts, m.sortMode.String())
@@ -613,6 +632,9 @@ func (m *Model) updateListTitle() {
 	if m.projectName != "" {
 		parts = append(parts, m.projectName)
 	}
+	if m.labelName != "" {
+		parts = append(parts, m.labelName)
+	}
 	parts = append(parts, "["+m.filter.String()+"]")
 	m.list.Title = strings.Join(parts, " > ")
 	if m.list.Title == "" {
@@ -628,15 +650,20 @@ func (m *Model) saveTeamState() {
 	copy(issues, m.issues)
 	projects := make([]Project, len(m.projects))
 	copy(projects, m.projects)
+	labels := make([]IssueLabel, len(m.labels))
+	copy(labels, m.labels)
 	states := make([]WorkflowState, len(m.workflowStates))
 	copy(states, m.workflowStates)
 	m.teamCache[m.cfg.TeamKey] = &teamState{
 		issues:         issues,
 		projects:       projects,
+		labels:         labels,
 		workflowStates: states,
 		filter:         m.filter,
 		projectFilter:  m.projectFilter,
 		projectName:    m.projectName,
+		labelFilter:    m.labelFilter,
+		labelName:      m.labelName,
 		listIndex:      m.list.Index(),
 	}
 }
@@ -648,10 +675,13 @@ func (m *Model) restoreTeamState() bool {
 	}
 	m.issues = ts.issues
 	m.projects = ts.projects
+	m.labels = ts.labels
 	m.workflowStates = ts.workflowStates
 	m.filter = ts.filter
 	m.projectFilter = ts.projectFilter
 	m.projectName = ts.projectName
+	m.labelFilter = ts.labelFilter
+	m.labelName = ts.labelName
 	m.rebuildList()
 	m.list.Select(ts.listIndex)
 	m.updateListTitle()
@@ -661,11 +691,14 @@ func (m *Model) restoreTeamState() bool {
 func (m *Model) flushTeamState() {
 	m.issues = nil
 	m.projects = nil
+	m.labels = nil
 	m.workflowStates = nil
 	m.cachedComments = nil
 	m.cachedCommentID = ""
 	m.projectFilter = nil
 	m.projectName = ""
+	m.labelFilter = nil
+	m.labelName = ""
 	m.detailIssue = nil
 	m.savedIssues = nil
 	m.searchTerm = ""

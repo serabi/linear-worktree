@@ -93,6 +93,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updatePrompt(msg)
 		case viewProjectPicker:
 			return m.updateProjectPicker(msg)
+		case viewLabelPicker:
+			return m.updateLabelPicker(msg)
 		case viewStatePicker:
 			return m.updateStatePicker(msg)
 		case viewFilterPicker:
@@ -237,7 +239,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.loading = true
 		m.loadingLabel = fmt.Sprintf("Loading %s...", m.cfg.TeamKey)
-		return m, tea.Batch(m.fetchIssues(), m.fetchProjects(), m.fetchWorkflowStates(), m.spinner.Tick)
+		return m, tea.Batch(m.fetchIssues(), m.fetchProjects(), m.fetchLabels(), m.fetchWorkflowStates(), m.spinner.Tick)
 
 	case setupCompleteMsg:
 		m.cfg = msg.cfg
@@ -248,7 +250,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.keys.TeamSwitch.SetEnabled(len(m.cfg.Teams) > 1)
 		m.updateListTitle()
 		m.recreatePaneManagerIfNeeded()
-		cmds := []tea.Cmd{m.fetchIssues(), m.fetchWorktrees(), m.fetchViewer(), m.fetchProjects()}
+		cmds := []tea.Cmd{m.fetchIssues(), m.fetchWorktrees(), m.fetchViewer(), m.fetchProjects(), m.fetchLabels()}
 		if m.useCmux {
 			cmds = append(cmds, m.startStatusPoll())
 		}
@@ -269,6 +271,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case projectsLoadedMsg:
 		if msg.err == nil {
 			m.projects = msg.projects
+		}
+		return m, nil
+
+	case labelsLoadedMsg:
+		if msg.err == nil {
+			m.labels = msg.labels
 		}
 		return m, nil
 
@@ -375,6 +383,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 	}
+	if m.view == viewLabelPicker && m.labelForm != nil {
+		form, cmd := m.labelForm.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			m.labelForm = f
+		}
+		if m.labelForm.State == huh.StateCompleted {
+			return m.handleLabelSelected()
+		}
+		return m, cmd
+	}
 	if m.view == viewProjectPicker && m.projectForm != nil {
 		form, cmd := m.projectForm.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
@@ -474,6 +492,9 @@ func (m *Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("p"))):
 		return m, m.showProjectPicker()
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("L"))):
+		return m, m.showLabelPicker()
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("?"))):
 		m.showHelp = !m.showHelp

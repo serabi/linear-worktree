@@ -24,6 +24,8 @@ func (m Model) View() tea.View {
 		base = m.viewPrompt()
 	case viewProjectPicker:
 		base = m.viewPicker("Select Project", m.projectForm)
+	case viewLabelPicker:
+		base = m.viewPicker("Filter by Label", m.labelForm)
 	case viewStatePicker:
 		base = m.viewPicker("Transition State", m.stateForm)
 	case viewLinkList:
@@ -98,7 +100,10 @@ func (m Model) viewList() string {
 		if m.filter == FilterAssigned {
 			scope := m.cfg.TeamKey
 			if m.projectName != "" {
-				scope = m.cfg.TeamKey + " > " + m.projectName
+				scope += " > " + m.projectName
+			}
+			if m.labelName != "" {
+				scope += " > " + m.labelName
 			}
 			hint = lipgloss.NewStyle().
 				Foreground(yellowColor).
@@ -115,10 +120,10 @@ func (m Model) viewList() string {
 	legend := statusBarStyle.Render(renderLegendCompact())
 	var row1, row2 string
 	if len(m.cfg.Teams) > 1 {
-		row1 = "enter:detail  c:claude  1-9:team  p:project"
+		row1 = "enter:detail  c:claude  1-9:team  p:project  L:labels"
 		row2 = "f:filter  o:sort  s:settings  ?:help"
 	} else {
-		row1 = "enter:detail  c:claude  p:project"
+		row1 = "enter:detail  c:claude  p:project  L:labels"
 		row2 = "f:filter  o:sort  s:settings(+teams)  ?:help"
 	}
 	shortcutText := row1 + "  " + row2

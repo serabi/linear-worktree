@@ -12,15 +12,26 @@ import (
 func (m Model) fetchIssues() tea.Cmd {
 	return func() tea.Msg {
 		client := NewLinearClient(m.cfg.LinearAPIKey)
-		if m.projectFilter != nil {
-			if *m.projectFilter == "none" {
-				issues, _, err := client.GetIssuesWithNoProject(m.cfg.TeamID, m.filter, m.sortMode, "")
-				return issuesLoadedMsg{issues: issues, err: err}
-			}
-			issues, _, err := client.GetIssuesByProject(m.cfg.TeamID, *m.projectFilter, "", m.filter, m.sortMode)
-			return issuesLoadedMsg{issues: issues, err: err}
+		hasProject := m.projectFilter != nil
+		hasLabel := m.labelFilter != nil
+
+		var issues []Issue
+		var err error
+
+		switch {
+		case hasProject && *m.projectFilter == "none" && hasLabel:
+			issues, _, err = client.GetIssuesWithNoProjectAndLabel(m.cfg.TeamID, *m.labelFilter, m.filter, m.sortMode, "")
+		case hasProject && *m.projectFilter == "none":
+			issues, _, err = client.GetIssuesWithNoProject(m.cfg.TeamID, m.filter, m.sortMode, "")
+		case hasProject && hasLabel:
+			issues, _, err = client.GetIssuesByProjectAndLabel(m.cfg.TeamID, *m.projectFilter, *m.labelFilter, "", m.filter, m.sortMode)
+		case hasProject:
+			issues, _, err = client.GetIssuesByProject(m.cfg.TeamID, *m.projectFilter, "", m.filter, m.sortMode)
+		case hasLabel:
+			issues, _, err = client.GetIssuesByLabel(m.cfg.TeamID, *m.labelFilter, "", m.filter, m.sortMode)
+		default:
+			issues, _, err = client.GetIssues(m.cfg.TeamID, m.filter, m.sortMode, "")
 		}
-		issues, _, err := client.GetIssues(m.cfg.TeamID, m.filter, m.sortMode, "")
 		return issuesLoadedMsg{issues: issues, err: err}
 	}
 }
@@ -99,6 +110,14 @@ func (m Model) fetchProjects() tea.Cmd {
 		client := NewLinearClient(m.cfg.LinearAPIKey)
 		projects, err := client.GetProjects(m.cfg.TeamID)
 		return projectsLoadedMsg{projects: projects, err: err}
+	}
+}
+
+func (m Model) fetchLabels() tea.Cmd {
+	return func() tea.Msg {
+		client := NewLinearClient(m.cfg.LinearAPIKey)
+		labels, err := client.GetLabels(m.cfg.TeamID)
+		return labelsLoadedMsg{labels: labels, err: err}
 	}
 }
 
