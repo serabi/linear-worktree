@@ -208,7 +208,7 @@ func (m *Model) handleSortSelected() (tea.Model, tea.Cmd) {
 	return m, tea.Batch(m.fetchIssues(), m.spinner.Tick)
 }
 
-func (m *Model) updateSortPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) updateSortPicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "esc" {
 		m.view = viewList
 		m.sortForm = nil
@@ -225,7 +225,7 @@ func (m *Model) updateSortPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *Model) updateFilterPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) updateFilterPicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "esc" {
 		m.view = viewList
 		m.filterForm = nil
@@ -242,7 +242,7 @@ func (m *Model) updateFilterPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *Model) updateProjectPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) updateProjectPicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "esc" {
 		m.view = viewList
 		m.projectForm = nil
@@ -259,7 +259,7 @@ func (m *Model) updateProjectPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *Model) updateStatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) updateStatePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "esc" {
 		m.view = viewList
 		m.stateForm = nil
@@ -370,7 +370,7 @@ func (m *Model) updateLinkList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) updateSearch(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.view = viewList

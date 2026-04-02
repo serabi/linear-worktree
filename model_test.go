@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -643,12 +644,12 @@ func TestDetailCommentSortOrder(t *testing.T) {
 	issue := &Issue{ID: "issue-1", Identifier: "TEST-1", Title: "Test"}
 	m.cachedCommentID = "issue-1"
 	m.cachedComments = []Comment{
-		{Body: "AAA_FIRST", User: struct {
+		{Body: "AAA FIRST", User: struct {
 			ID          string `json:"id"`
 			DisplayName string `json:"displayName"`
 			Name        string `json:"name"`
 		}{ID: "u1", Name: "Alice"}, CreatedAt: "2025-01-01T00:00:00Z"},
-		{Body: "ZZZ_LAST", User: struct {
+		{Body: "ZZZ LAST", User: struct {
 			ID          string `json:"id"`
 			DisplayName string `json:"displayName"`
 			Name        string `json:"name"`
@@ -658,8 +659,10 @@ func TestDetailCommentSortOrder(t *testing.T) {
 	// Ascending: first comment appears before last
 	m.commentSortAsc = true
 	content := m.buildDetailContent(issue, 70)
-	firstIdx := strings.Index(content, "AAA_FIRST")
-	lastIdx := strings.Index(content, "ZZZ_LAST")
+	ansiPattern := regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	content = ansiPattern.ReplaceAllString(content, "")
+	firstIdx := strings.Index(content, "AAA FIRST")
+	lastIdx := strings.Index(content, "ZZZ LAST")
 	if firstIdx < 0 || lastIdx < 0 {
 		t.Fatal("expected both comments in output")
 	}
@@ -670,8 +673,9 @@ func TestDetailCommentSortOrder(t *testing.T) {
 	// Descending: last comment appears before first
 	m.commentSortAsc = false
 	content = m.buildDetailContent(issue, 70)
-	firstIdx = strings.Index(content, "AAA_FIRST")
-	lastIdx = strings.Index(content, "ZZZ_LAST")
+	content = ansiPattern.ReplaceAllString(content, "")
+	firstIdx = strings.Index(content, "AAA FIRST")
+	lastIdx = strings.Index(content, "ZZZ LAST")
 	if firstIdx < lastIdx {
 		t.Error("descending sort: last comment should appear before first")
 	}

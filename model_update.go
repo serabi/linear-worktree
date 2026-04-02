@@ -45,7 +45,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if m.confirm != nil {
 			switch msg.String() {
 			case "y":
@@ -421,7 +421,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
 		if m.showHelp {
@@ -517,7 +517,7 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m.updateListCursor(msg)
 }
 
-func (m *Model) updateComment(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) updateComment(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.view = viewDetail
@@ -550,7 +550,7 @@ func (m *Model) updateComment(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) updateDetail(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "d":
 		if len(m.detailHistory) > 0 {
@@ -614,7 +614,7 @@ func (m *Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *Model) updateLaunch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) updateLaunch(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.view = viewList
@@ -669,7 +669,7 @@ func (m *Model) updateLaunch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *Model) updatePrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) updatePrompt(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.view = viewLaunch

@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
@@ -13,6 +12,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/compat"
@@ -458,8 +458,8 @@ type Model struct {
 	linkList         list.Model
 	linkReturnToView viewMode
 
-	detailHistory        []*Issue
-	pendingHistoryIssue  *Issue
+	detailHistory       []*Issue
+	pendingHistoryIssue *Issue
 
 	prefetchSeq   int
 	lastListIndex int

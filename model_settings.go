@@ -260,7 +260,7 @@ func splitComma(s string) []string {
 	return result
 }
 
-func (m *Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) updateSettings(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.settingsTabs[0] == nil {
 		return m, nil
 	}

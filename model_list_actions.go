@@ -150,7 +150,6 @@ func (m *Model) showSelectedIssueDetail() (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-
 func (m *Model) beginComment(issue *Issue) (tea.Model, tea.Cmd) {
 	m.view = viewComment
 	m.commentIssue = issue
@@ -242,7 +241,7 @@ func (m *Model) openSelectedIssueLinks() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) updateListCursor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) updateListCursor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	prevIndex := m.list.Index()
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
