@@ -303,6 +303,7 @@ type projectsLoadedMsg struct {
 }
 
 type labelsLoadedMsg struct {
+	teamID string
 	labels []IssueLabel
 	err    error
 }

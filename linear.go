@@ -506,24 +506,46 @@ func (lc *LinearClient) GetIssuesWithNoProject(teamID string, filter FilterMode,
 }
 
 func (lc *LinearClient) GetLabels(teamID string) ([]IssueLabel, error) {
-	var result struct {
-		IssueLabels struct {
-			Nodes []IssueLabel `json:"nodes"`
-		} `json:"issueLabels"`
-	}
+	var all []IssueLabel
+	var after string
 
-	err := lc.queryWithVars(`
-		query($teamID: ID!) {
-			issueLabels(
-				filter: { team: { id: { eq: $teamID } } }
-				first: 50
-				orderBy: updatedAt
-			) {
-				nodes { id name color }
-			}
+	for {
+		var result struct {
+			IssueLabels struct {
+				Nodes    []IssueLabel `json:"nodes"`
+				PageInfo PageInfo     `json:"pageInfo"`
+			} `json:"issueLabels"`
 		}
-	`, map[string]any{"teamID": teamID}, &result)
-	return result.IssueLabels.Nodes, err
+
+		vars := map[string]any{"teamID": teamID}
+		if after != "" {
+			vars["after"] = after
+		}
+
+		err := lc.queryWithVars(`
+			query($teamID: ID!, $after: String) {
+				issueLabels(
+					filter: { team: { id: { eq: $teamID } } }
+					first: 50
+					after: $after
+					orderBy: updatedAt
+				) {
+					nodes { id name color }
+					pageInfo { hasNextPage endCursor }
+				}
+			}
+		`, vars, &result)
+		if err != nil {
+			return all, err
+		}
+
+		all = append(all, result.IssueLabels.Nodes...)
+		if !result.IssueLabels.PageInfo.HasNextPage {
+			break
+		}
+		after = result.IssueLabels.PageInfo.EndCursor
+	}
+	return all, nil
 }
 
 func (lc *LinearClient) GetIssuesByLabel(teamID, labelID, after string, filter FilterMode, sort SortMode) ([]Issue, PageInfo, error) {

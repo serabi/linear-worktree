@@ -38,6 +38,10 @@ func (m *Model) showProjectPicker() tea.Cmd {
 }
 
 func (m *Model) showLabelPicker() tea.Cmd {
+	if len(m.labels) == 0 {
+		m.statusMsg = "Labels loading..."
+		return nil
+	}
 	options := []huh.Option[string]{
 		huh.NewOption("All issues", ""),
 	}
@@ -403,7 +407,7 @@ func (m *Model) showDetailLinks() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) updateLinkList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) updateLinkList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.view = m.linkReturnToView

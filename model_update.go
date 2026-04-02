@@ -275,6 +275,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case labelsLoadedMsg:
+		if msg.teamID != m.cfg.TeamID {
+			return m, nil
+		}
 		if msg.err == nil {
 			m.labels = msg.labels
 		}

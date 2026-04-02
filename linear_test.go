@@ -374,12 +374,22 @@ func TestLinearClientGetIssuesWithNoProject(t *testing.T) {
 
 func TestLinearClientGetLabels(t *testing.T) {
 	server := mockLinearServer(func(query string, vars map[string]any) (int, interface{}) {
+		if vars["teamID"] != "team-1" {
+			t.Errorf("expected teamID 'team-1', got %v", vars["teamID"])
+		}
+		if !strings.Contains(query, "issueLabels") {
+			t.Errorf("expected query to contain 'issueLabels', got %s", query)
+		}
 		return 200, map[string]interface{}{
 			"issueLabels": map[string]interface{}{
 				"nodes": []map[string]interface{}{
 					{"id": "label-1", "name": "Bug", "color": "#ff0000"},
 					{"id": "label-2", "name": "Feature", "color": "#00ff00"},
 					{"id": "label-3", "name": "Improvement", "color": "#0000ff"},
+				},
+				"pageInfo": map[string]interface{}{
+					"hasNextPage": false,
+					"endCursor":   "",
 				},
 			},
 		}
@@ -403,6 +413,15 @@ func TestLinearClientGetLabels(t *testing.T) {
 
 func TestLinearClientGetIssuesByLabel(t *testing.T) {
 	server := mockLinearServer(func(query string, vars map[string]any) (int, interface{}) {
+		if vars["teamID"] != "team-1" {
+			t.Errorf("expected teamID 'team-1', got %v", vars["teamID"])
+		}
+		if vars["labelID"] != "label-1" {
+			t.Errorf("expected labelID 'label-1', got %v", vars["labelID"])
+		}
+		if !strings.Contains(query, "labelID") {
+			t.Errorf("expected query to contain 'labelID', got %s", query)
+		}
 		return 200, map[string]interface{}{
 			"issues": map[string]interface{}{
 				"nodes": []map[string]interface{}{
