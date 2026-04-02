@@ -52,7 +52,29 @@ Bubble Tea TUI — single `main` package, no subdirectories.
 ## Testing
 
 ```bash
-go test ./...           # All tests
-go test -run TestFoo    # Single test
-go test -v ./...        # Verbose
+go test ./...                            # All tests
+go test -run TestFoo                     # Single test
+go test -v ./...                         # Verbose
+go test ./... -args -update-goldens      # Refresh golden snapshots
+go test ./... -cover                     # Show coverage %
 ```
+
+### Test categories
+
+| Category | Files | What's tested |
+|----------|-------|---------------|
+| **API client** | `linear_test.go` | All GraphQL methods (httptest mocks), pagination, auth, sorting |
+| **Golden snapshots** | `model_view_test.go`, `testdata/golden/` | View() output for settings, list, empty state. Run with `-update-goldens` to refresh. |
+| **Sequence tests** | `model_view_test.go` | Multi-step UI flows: list→detail→back, help toggle, search mode, filter cycling |
+| **Detail view** | `model_test.go` | Metadata rendering (SLA fields, comments, sort order), back-navigation |
+| **Settings** | `model_test.go` | Form tabs, validation, credential requirements, team resolution |
+| **Worktree ops** | `worktree_test.go` | Create/remove/list worktrees, path traversal protection, file copying |
+| **Config** | `config_test.go` | Load/save, keyring migration, API key storage |
+| **Utilities** | `model_test.go` | Time formatting, URL truncation, prompt building |
+
+### Writing new tests
+
+- **Golden tests**: Add a `TestGoldenView*` function in `model_view_test.go`. Set up model state, call `viewContent(m)`, compare with `normalizeView()` against a golden file. Run `-update-goldens` to create the initial snapshot.
+- **Sequence tests**: Add a `TestSequence*` function that sends a series of `tea.KeyMsg` through `m.Update()` and asserts state changes or view content at each step.
+- **Detail rendering**: Create an `&Issue{}` with fields set, call `m.buildDetailContent(issue, width)`, assert with `strings.Contains()`.
+- **API tests**: Use `httptest.NewServer` returning canned JSON responses, create `LinearClient` pointing at the test server.
