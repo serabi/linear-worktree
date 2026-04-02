@@ -176,6 +176,26 @@ func (m Model) writeDetailMetadata(b *strings.Builder, issue *Issue, ctx detailR
 	if issue.BranchName != "" {
 		b.WriteString(ctx.field("Branch", lipgloss.NewStyle().Foreground(greenColor).Render(issue.BranchName)))
 	}
+	if m.hasWorktree(issue.Identifier) {
+		wtStatus := worktreeMarker.Render("active")
+		if m.paneManager != nil {
+			if slot, _ := m.paneManager.FindSlotByIdentifier(issue.Identifier); slot != nil {
+				var style lipgloss.Style
+				switch slot.Status {
+				case AgentRunning:
+					style = slotRunningStyle
+				case AgentWaiting:
+					style = slotWaitingStyle
+				case AgentIdle:
+					style = slotIdleStyle
+				default:
+					style = slotEmptyStyle
+				}
+				wtStatus += " " + style.Render(fmt.Sprintf("[slot %d: %s]", slot.Index+1, slot.Status.Label()))
+			}
+		}
+		b.WriteString(ctx.field("Worktree", wtStatus))
+	}
 	if issue.URL != "" {
 		b.WriteString(ctx.field("URL", ctx.link(issue.URL)))
 	}

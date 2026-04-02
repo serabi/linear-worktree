@@ -30,6 +30,8 @@ func (m Model) View() tea.View {
 		base = m.viewPicker("Transition State", m.stateForm)
 	case viewLinkList:
 		base = m.viewLinkList()
+	case viewWorktreeList:
+		base = m.viewWorktreeList()
 	case viewFilterPicker:
 		base = m.viewPicker("Filter Issues", m.filterForm)
 	case viewSortPicker:
@@ -120,10 +122,10 @@ func (m Model) viewList() string {
 	legend := statusBarStyle.Render(renderLegendCompact())
 	var row1, row2 string
 	if len(m.cfg.Teams) > 1 {
-		row1 = "enter:detail  c:claude  1-9:team  p:project  L:labels"
+		row1 = "enter:detail  c:claude  1-9:team  p:project  L:labels  w:worktrees"
 		row2 = "f:filter  o:sort  s:settings  ?:help"
 	} else {
-		row1 = "enter:detail  c:claude  p:project  L:labels"
+		row1 = "enter:detail  c:claude  p:project  L:labels  w:worktrees"
 		row2 = "f:filter  o:sort  s:settings(+teams)  ?:help"
 	}
 	shortcutText := row1 + "  " + row2
@@ -231,6 +233,11 @@ func (m Model) renderSlotBar() string {
 		)
 	}
 	return lipgloss.NewStyle().Padding(0, 1).Render(strings.Join(parts, "  "))
+}
+
+func (m Model) viewWorktreeList() string {
+	status := statusBarStyle.Render("[Enter] detail  [x] remove worktree  [Esc] back")
+	return appStyle.Render(lipgloss.JoinVertical(lipgloss.Left, m.worktreeList.View(), status))
 }
 
 func (m Model) viewLinkList() string {

@@ -88,6 +88,225 @@ func TestCmuxFallbackUsesMessageWorktreePath(t *testing.T) {
 	}
 }
 
+func TestLaunchReadyMsgHookErrorSetsWarning(t *testing.T) {
+	m := NewModel(Config{
+		ClaudeCommand: "claude",
+		WorktreeBase:  "/tmp/wt",
+	})
+
+	result, cmd := m.Update(launchReadyMsg{
+		issue:   Issue{Identifier: "TEST-1", Title: "Test"},
+		wtPath:  "/tmp/wt/test-1",
+		prompt:  "hello",
+		hookErr: errors.New("npm install failed"),
+	})
+
+	model := result.(Model)
+	if !strings.Contains(model.statusMsg, "hook failed") {
+		t.Errorf("expected statusMsg to contain 'hook failed', got %q", model.statusMsg)
+	}
+	if cmd == nil {
+		t.Error("expected launch cmd to still proceed despite hook error")
+	}
+}
+
+func TestLaunchReadyMsgNoHookError(t *testing.T) {
+	m := NewModel(Config{
+		ClaudeCommand: "claude",
+		WorktreeBase:  "/tmp/wt",
+	})
+
+	result, cmd := m.Update(launchReadyMsg{
+		issue:  Issue{Identifier: "TEST-1", Title: "Test"},
+		wtPath: "/tmp/wt/test-1",
+		prompt: "hello",
+	})
+
+	model := result.(Model)
+	if model.statusMsg != "" {
+		t.Errorf("expected empty statusMsg when no hook error, got %q", model.statusMsg)
+	}
+	if cmd == nil {
+		t.Error("expected launch cmd")
+	}
+}
+
+func TestRemoveWorktreeConfirmDialog(t *testing.T) {
+	m := NewModel(Config{
+		LinearAPIKey:  "lin_api_test",
+		TeamID:        "team-1",
+		TeamKey:       "TEST",
+		ClaudeCommand: "claude",
+		WorktreeBase:  "/tmp/wt",
+		BranchPrefix:  "feature/",
+	})
+	m.issues = []Issue{{Identifier: "TEST-1", Title: "Test"}}
+	m.worktreeBranches = map[string]bool{"feature/test-1": true}
+	m.rebuildList()
+
+	result, _ := m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	model := result.(*Model)
+
+	if model.confirm == nil {
+		t.Fatal("expected confirmation dialog")
+	}
+	if model.confirm.action != confirmRemoveWorktree {
+		t.Errorf("expected confirmRemoveWorktree, got %d", model.confirm.action)
+	}
+	if !strings.Contains(model.confirm.message, "TEST-1") {
+		t.Errorf("expected message to mention TEST-1, got %q", model.confirm.message)
+	}
+}
+
+func TestRemoveWorktreeNoWorktree(t *testing.T) {
+	m := NewModel(Config{
+		LinearAPIKey:  "lin_api_test",
+		TeamID:        "team-1",
+		TeamKey:       "TEST",
+		ClaudeCommand: "claude",
+		WorktreeBase:  "/tmp/wt",
+		BranchPrefix:  "feature/",
+	})
+	m.issues = []Issue{{Identifier: "TEST-1", Title: "Test"}}
+	m.worktreeBranches = map[string]bool{}
+	m.rebuildList()
+
+	result, _ := m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	model := result.(*Model)
+
+	if model.confirm != nil {
+		t.Error("expected no confirmation dialog when issue has no worktree")
+	}
+	if !strings.Contains(model.statusMsg, "no worktree") {
+		t.Errorf("expected 'no worktree' status, got %q", model.statusMsg)
+	}
+}
+
+func TestWorktreeRemovedMsgSuccess(t *testing.T) {
+	m := NewModel(Config{
+		ClaudeCommand: "claude",
+		WorktreeBase:  "/tmp/wt",
+		BranchPrefix:  "feature/",
+	})
+
+	result, cmd := m.Update(worktreeRemovedMsg{identifier: "TEST-1"})
+	model := result.(Model)
+
+	if !strings.Contains(model.statusMsg, "Removed worktree") {
+		t.Errorf("expected success status, got %q", model.statusMsg)
+	}
+	if cmd == nil {
+		t.Error("expected fetchWorktrees cmd")
+	}
+}
+
+func TestWorktreeRemovedMsgError(t *testing.T) {
+	m := NewModel(Config{
+		ClaudeCommand: "claude",
+		WorktreeBase:  "/tmp/wt",
+		BranchPrefix:  "feature/",
+	})
+
+	result, _ := m.Update(worktreeRemovedMsg{
+		identifier: "TEST-1",
+		err:        errors.New("permission denied"),
+	})
+	model := result.(Model)
+
+	if !strings.Contains(model.statusMsg, "Error removing") {
+		t.Errorf("expected error status, got %q", model.statusMsg)
+	}
+}
+
+func TestBuildWorktreeListItems(t *testing.T) {
+	m := NewModel(Config{
+		LinearAPIKey:  "lin_api_test",
+		TeamID:        "team-1",
+		TeamKey:       "TEST",
+		ClaudeCommand: "claude",
+		WorktreeBase:  "/tmp/wt",
+		BranchPrefix:  "feature/",
+	})
+
+	worktrees := []Worktree{
+		{Path: "/repo", Branch: "main", Head: "abc123", Bare: true},
+		{Path: "/tmp/wt/test-1", Branch: "feature/test-1", Head: "def456"},
+		{Path: "/tmp/wt/test-2", Branch: "feature/test-2", Head: "ghi789"},
+		{Path: "/tmp/wt/manual", Branch: "manual-branch", Head: "jkl012"},
+	}
+
+	items := m.buildWorktreeListItems(worktrees)
+
+	// 2 managed + 1 separator + 1 other = 4
+	if len(items) != 4 {
+		t.Fatalf("expected 4 items (bare skipped, separator added), got %d", len(items))
+	}
+
+	wi0 := items[0].(worktreeItem)
+	if wi0.identifier != "TEST-1" {
+		t.Errorf("item[0].identifier = %q, want TEST-1", wi0.identifier)
+	}
+	if wi0.slotIdx != -1 {
+		t.Errorf("item[0].slotIdx = %d, want -1 (no slot)", wi0.slotIdx)
+	}
+
+	// item[2] should be the separator
+	if _, ok := items[2].(worktreeSeparator); !ok {
+		t.Errorf("item[2] should be worktreeSeparator, got %T", items[2])
+	}
+
+	wi3 := items[3].(worktreeItem)
+	if wi3.identifier != "" {
+		t.Errorf("item[3].identifier = %q, want empty (no matching prefix)", wi3.identifier)
+	}
+}
+
+func TestWorktreeListEscReturnsToList(t *testing.T) {
+	m := NewModel(Config{
+		LinearAPIKey:  "lin_api_test",
+		TeamID:        "team-1",
+		TeamKey:       "TEST",
+		ClaudeCommand: "claude",
+		WorktreeBase:  "/tmp/wt",
+		BranchPrefix:  "feature/",
+	})
+	m.view = viewWorktreeList
+
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	model := result.(*Model)
+
+	if model.view != viewList {
+		t.Errorf("expected viewList after esc, got %d", model.view)
+	}
+}
+
+func TestWorktreeListLoadedMsg(t *testing.T) {
+	m := NewModel(Config{
+		LinearAPIKey:  "lin_api_test",
+		TeamID:        "team-1",
+		TeamKey:       "TEST",
+		ClaudeCommand: "claude",
+		WorktreeBase:  "/tmp/wt",
+		BranchPrefix:  "feature/",
+	})
+	m.width = 80
+	m.height = 24
+
+	result, _ := m.Update(worktreeListLoadedMsg{
+		worktrees: []Worktree{
+			{Path: "/tmp/wt/test-1", Branch: "feature/test-1", Head: "abc123"},
+		},
+	})
+	model := result.(Model)
+
+	if model.view != viewWorktreeList {
+		t.Errorf("expected viewWorktreeList, got %d", model.view)
+	}
+	if !strings.Contains(model.statusMsg, "1 worktrees") {
+		t.Errorf("expected '1 worktrees' status, got %q", model.statusMsg)
+	}
+}
+
 func TestSettingsInitOnFirstRun(t *testing.T) {
 	cfg := DefaultConfig() // NeedsSetup() == true
 	m := NewModel(cfg)

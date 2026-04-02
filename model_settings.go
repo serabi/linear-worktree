@@ -150,10 +150,8 @@ func (m *Model) recreatePaneManagerIfNeeded() {
 	if m.paneManager == nil || m.paneManager.maxSlots == m.cfg.MaxSlots {
 		return
 	}
-	for i, slot := range m.paneManager.Slots() {
-		if slot != nil {
-			_ = m.paneManager.CloseSlot(i)
-		}
+	for i := range m.paneManager.Slots() {
+		_ = m.paneManager.CloseSlot(i)
 	}
 	m.paneManager = NewPaneManager(m.cmuxClient, m.cfg.MaxSlots)
 }

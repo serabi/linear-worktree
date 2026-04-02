@@ -213,10 +213,25 @@ func (m Model) launchWithPromptCmd(issue Issue, prompt string) tea.Cmd {
 		if err != nil {
 			return worktreeCreatedMsg{err: err, identifier: issue.Identifier}
 		}
-		if err := RunPostCreateHook(wtPath, m.cfg); err != nil {
-			debugLog.Printf("post-create hook failed: %v", err)
+		hookErr := RunPostCreateHook(wtPath, m.cfg)
+		if hookErr != nil {
+			debugLog.Printf("post-create hook failed: %v", hookErr)
 		}
-		return launchReadyMsg{issue: issue, wtPath: wtPath, prompt: prompt}
+		return launchReadyMsg{issue: issue, wtPath: wtPath, prompt: prompt, hookErr: hookErr}
+	}
+}
+
+func (m Model) fetchWorktreeListCmd() tea.Cmd {
+	return func() tea.Msg {
+		wts, err := ListWorktrees()
+		return worktreeListLoadedMsg{worktrees: wts, err: err}
+	}
+}
+
+func (m Model) removeWorktreeCmd(identifier, wtPath string) tea.Cmd {
+	return func() tea.Msg {
+		err := RemoveWorktree(wtPath)
+		return worktreeRemovedMsg{identifier: identifier, err: err}
 	}
 }
 

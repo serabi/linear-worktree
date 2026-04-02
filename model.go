@@ -77,6 +77,17 @@ func NewModel(cfg Config) Model {
 	lnk.SetFilteringEnabled(false)
 	lnk.Styles.Title = titleStyle
 
+	wtDelegate := list.NewDefaultDelegate()
+	wtDelegate.ShowDescription = true
+	wtDelegate.SetHeight(2)
+	wtDelegate.SetSpacing(0)
+	wtl := list.New([]list.Item{}, wtDelegate, 0, 0)
+	wtl.Title = "Worktrees"
+	wtl.SetShowHelp(false)
+	wtl.SetShowStatusBar(false)
+	wtl.SetFilteringEnabled(true)
+	wtl.Styles.Title = titleStyle
+
 	ta := textarea.New()
 	ta.Placeholder = "Enter your prompt for Claude..."
 	ta.CharLimit = 10000
@@ -98,6 +109,7 @@ func NewModel(cfg Config) Model {
 		detailViewport:   vp,
 		launchList:       ll,
 		linkList:         lnk,
+		worktreeList:     wtl,
 		promptArea:       ta,
 		teamCache:        make(map[string]*teamState),
 	}

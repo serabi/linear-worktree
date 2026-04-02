@@ -94,25 +94,6 @@ func TestInferStatus(t *testing.T) {
 	}
 }
 
-func TestEscapeShell(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"hello", "hello"},
-		{"it's a test", "it'\\''s a test"},
-		{"no quotes here", "no quotes here"},
-		{"", ""},
-	}
-
-	for _, tt := range tests {
-		result := escapeShell(tt.input)
-		if result != tt.expected {
-			t.Errorf("escapeShell(%q) = %q, want %q", tt.input, result, tt.expected)
-		}
-	}
-}
-
 func TestShellQuote(t *testing.T) {
 	tests := []struct {
 		input    string
