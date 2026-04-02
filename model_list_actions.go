@@ -169,16 +169,16 @@ func (m *Model) removeSelectedWorktree() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if m.paneManager != nil {
-		if _, idx := m.paneManager.FindSlotByIdentifier(issue.Identifier); idx >= 0 {
-			_ = m.paneManager.CloseSlot(idx)
-		}
-	}
-
 	wtPath := m.findWorktreePath(issue.Identifier)
 	if wtPath == "" {
 		m.statusMsg = fmt.Sprintf("Could not find worktree path for %s", issue.Identifier)
 		return m, nil
+	}
+
+	if m.paneManager != nil {
+		if _, idx := m.paneManager.FindSlotByIdentifier(issue.Identifier); idx >= 0 {
+			_ = m.paneManager.CloseSlot(idx)
+		}
 	}
 
 	m.statusMsg = fmt.Sprintf("Removing worktree for %s...", issue.Identifier)

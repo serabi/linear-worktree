@@ -239,7 +239,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.worktreeList.SetSize(m.width-4, m.height-4)
 		m.worktreeList.Select(0)
 		m.view = viewWorktreeList
-		m.statusMsg = fmt.Sprintf("%d worktrees", len(items))
+		wtCount := 0
+		for _, item := range items {
+			if _, ok := item.(worktreeItem); ok {
+				wtCount++
+			}
+		}
+		m.statusMsg = fmt.Sprintf("%d worktrees", wtCount)
 		return m, nil
 
 	case statusPollMsg:
