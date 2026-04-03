@@ -283,15 +283,7 @@ func cmuxIdentify() (*cmuxIdentifyResult, error) {
 // OpenSlot adds an issue to the next available slot, creates a pane, and launches Claude.
 // Uses the default prompt built from the issue.
 func (pm *PaneManager) OpenSlot(issue Issue, wtPath string, cfg Config) (*WorktreeSlot, error) {
-	prompt := fmt.Sprintf("You're working on %s: %s", issue.Identifier, issue.Title)
-	if issue.Description != "" {
-		desc := issue.Description
-		if len(desc) > 500 {
-			desc = desc[:500] + "..."
-		}
-		prompt += fmt.Sprintf("\n\nDescription:\n%s", desc)
-	}
-	return pm.OpenSlotWithPrompt(issue, wtPath, prompt, cfg)
+	return pm.OpenSlotWithPrompt(issue, wtPath, buildPrompt(issue, cfg), cfg)
 }
 
 // OpenSlotWithPrompt adds an issue to the next available slot with a custom prompt.
@@ -449,6 +441,19 @@ func (pm *PaneManager) Slots() [absoluteMaxSlots]*WorktreeSlot {
 	return pm.slots
 }
 
+// FindSlotByIdentifier returns the slot and its index for the given issue identifier.
+// Returns nil, -1 if no slot matches.
+func (pm *PaneManager) FindSlotByIdentifier(identifier string) (*WorktreeSlot, int) {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	for i, slot := range pm.slots {
+		if slot != nil && slot.Issue.Identifier == identifier {
+			return slot, i
+		}
+	}
+	return nil, -1
+}
+
 // ActiveCount returns how many slots are occupied.
 func (pm *PaneManager) ActiveCount() int {
 	pm.mu.RLock()
@@ -587,20 +592,7 @@ func inferStatus(terminalText string) AgentStatus {
 
 func containsAny(s string, substrs ...string) bool {
 	for _, sub := range substrs {
-		if contains(s, sub) {
-			return true
-		}
-	}
-	return false
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && searchString(s, substr)
-}
-
-func searchString(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
+		if strings.Contains(s, sub) {
 			return true
 		}
 	}
@@ -627,9 +619,3 @@ func shellQuote(s string) string {
 	return string(result)
 }
 
-// escapeShell is kept for backward compat in tests; prefer shellQuote for new code.
-func escapeShell(s string) string {
-	inner := shellQuote(s)
-	// Strip the outer quotes to match the old API (caller wraps in quotes)
-	return inner[1 : len(inner)-1]
-}

@@ -365,6 +365,71 @@ func (m *Model) updateStatePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m *Model) updateWorktreeList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.view = viewList
+		return m, nil
+
+	case "enter":
+		item := m.worktreeList.SelectedItem()
+		if item == nil {
+			return m, nil
+		}
+		wi, ok := item.(worktreeItem)
+		if !ok {
+			return m, nil
+		}
+		if wi.identifier != "" {
+			for _, issue := range m.issues {
+				if strings.EqualFold(issue.Identifier, wi.identifier) {
+					m.view = viewDetail
+					m.detailIssue = &issue
+					m.detailHistory = nil
+					m.detailViewport.SetWidth(m.width - 6)
+					m.detailViewport.SetHeight(m.height - 6)
+					m.loading = true
+					m.loadingLabel = "Loading..."
+					cmds := []tea.Cmd{m.buildDetailContentCmd(&issue), m.spinner.Tick}
+					if issue.ID != m.cachedCommentID {
+						cmds = append(cmds, m.fetchCommentsCmd(issue.ID))
+					}
+					return m, tea.Batch(cmds...)
+				}
+			}
+			m.statusMsg = fmt.Sprintf("Issue %s not in current list", wi.identifier)
+		}
+		return m, nil
+
+	case "x":
+		item := m.worktreeList.SelectedItem()
+		if item == nil {
+			return m, nil
+		}
+		wi, ok := item.(worktreeItem)
+		if !ok {
+			return m, nil
+		}
+		m.confirm = &confirmDialog{
+			action:  confirmRemoveWorktree,
+			title:   "Remove Worktree?",
+			message: fmt.Sprintf("Remove worktree and branch %s? This cannot be undone.", wi.branch),
+			onYes: func(m *Model) (tea.Model, tea.Cmd) {
+				if wi.slotIdx >= 0 && m.paneManager != nil {
+					_ = m.paneManager.CloseSlot(wi.slotIdx)
+				}
+				m.statusMsg = fmt.Sprintf("Removing %s...", wi.branch)
+				return m, m.removeWorktreeCmd(wi.identifier, wi.path)
+			},
+		}
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.worktreeList, cmd = m.worktreeList.Update(msg)
+	return m, cmd
+}
+
 func (m *Model) showLinkList(items []list.Item, title string) {
 	m.linkList.Title = title
 	m.linkList.SetItems(items)

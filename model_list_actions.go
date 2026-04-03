@@ -51,30 +51,23 @@ func (m Model) buildLaunchOptions(issue *Issue) []list.Item {
 	}
 
 	if m.paneManager != nil {
-		for _, slot := range m.paneManager.Slots() {
-			if slot != nil && slot.Issue.Identifier == issue.Identifier {
-				items = append([]list.Item{
-					launchOption{
-						"resume",
-						"Resume existing session",
-						fmt.Sprintf("Focus slot %d (%s)", slot.Index+1, slot.Status.Label()),
-						slot.Index,
-					},
-				}, items...)
-				break
-			}
+		if slot, _ := m.paneManager.FindSlotByIdentifier(issue.Identifier); slot != nil {
+			items = append([]list.Item{
+				launchOption{
+					"resume",
+					"Resume existing session",
+					fmt.Sprintf("Focus slot %d (%s)", slot.Index+1, slot.Status.Label()),
+					slot.Index,
+				},
+			}, items...)
 		}
 	}
 
-	branch := m.cfg.BranchPrefix + strings.ToLower(issue.Identifier)
-	hasWorktree := m.worktreeBranches[branch]
+	hasWorktree := m.hasWorktree(issue.Identifier)
 	hasSlot := false
 	if m.paneManager != nil {
-		for _, slot := range m.paneManager.Slots() {
-			if slot != nil && slot.Issue.Identifier == issue.Identifier {
-				hasSlot = true
-				break
-			}
+		if s, _ := m.paneManager.FindSlotByIdentifier(issue.Identifier); s != nil {
+			hasSlot = true
 		}
 	}
 	if hasWorktree && !hasSlot {
@@ -102,31 +95,94 @@ func (m *Model) createSelectedWorktree() (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m *Model) closeSelectedSlot() (tea.Model, tea.Cmd) {
-	if m.paneManager == nil {
-		m.statusMsg = "No cmux panes to close"
-		return m, nil
-	}
-
-	issue := m.selectedIssue()
-	if issue == nil {
-		return m, nil
-	}
-
-	for i, slot := range m.paneManager.Slots() {
-		if slot != nil && slot.Issue.Identifier == issue.Identifier {
-			if err := m.paneManager.CloseSlot(i); err != nil {
-				m.statusMsg = fmt.Sprintf("Error closing slot: %v", err)
-			} else {
-				m.statusMsg = fmt.Sprintf("Closed slot %d (%s)", i+1, issue.Identifier)
-				m.rebuildList()
+func (m *Model) buildWorktreeListItems(worktrees []Worktree) []list.Item {
+	slotMap := make(map[string]*WorktreeSlot)
+	if m.paneManager != nil {
+		for _, slot := range m.paneManager.Slots() {
+			if slot != nil {
+				slotMap[slot.WorktreePath] = slot
 			}
-			return m, nil
 		}
 	}
 
-	m.statusMsg = fmt.Sprintf("%s is not in a slot", issue.Identifier)
-	return m, nil
+	var managed, other []list.Item
+	for _, wt := range worktrees {
+		if wt.Bare {
+			continue
+		}
+		identifier := ""
+		if strings.HasPrefix(wt.Branch, m.cfg.BranchPrefix) {
+			identifier = strings.ToUpper(strings.TrimPrefix(wt.Branch, m.cfg.BranchPrefix))
+		}
+
+		item := worktreeItem{
+			path:       wt.Path,
+			branch:     wt.Branch,
+			head:       wt.Head,
+			identifier: identifier,
+			slotIdx:    -1,
+		}
+
+		if slot, ok := slotMap[wt.Path]; ok {
+			item.slotIdx = slot.Index
+			item.slotStatus = slot.Status
+		}
+
+		if identifier != "" {
+			managed = append(managed, item)
+		} else {
+			other = append(other, item)
+		}
+	}
+
+	items := managed
+	if len(other) > 0 {
+		items = append(items, worktreeSeparator{label: fmt.Sprintf("Other worktrees (%d)", len(other))})
+		items = append(items, other...)
+	}
+	return items
+}
+
+func (m *Model) findWorktreePath(identifier string) string {
+	branch := m.getBranchName(identifier)
+	wts, err := ListWorktrees()
+	if err != nil {
+		return ""
+	}
+	for _, wt := range wts {
+		if wt.Branch == branch {
+			return wt.Path
+		}
+	}
+	return ""
+}
+
+func (m *Model) removeSelectedWorktree() (tea.Model, tea.Cmd) {
+	issue := m.selectedIssue()
+	if issue == nil {
+		m.statusMsg = "No issue selected"
+		return m, nil
+	}
+
+	if !m.hasWorktree(issue.Identifier) {
+		m.statusMsg = fmt.Sprintf("%s has no worktree", issue.Identifier)
+		return m, nil
+	}
+
+	wtPath := m.findWorktreePath(issue.Identifier)
+	if wtPath == "" {
+		m.statusMsg = fmt.Sprintf("Could not find worktree path for %s", issue.Identifier)
+		return m, nil
+	}
+
+	if m.paneManager != nil {
+		if _, idx := m.paneManager.FindSlotByIdentifier(issue.Identifier); idx >= 0 {
+			_ = m.paneManager.CloseSlot(idx)
+		}
+	}
+
+	m.statusMsg = fmt.Sprintf("Removing worktree for %s...", issue.Identifier)
+	return m, m.removeWorktreeCmd(issue.Identifier, wtPath)
 }
 
 func (m *Model) showSelectedIssueDetail() (tea.Model, tea.Cmd) {

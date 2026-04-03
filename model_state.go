@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
@@ -14,359 +13,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
-	"charm.land/lipgloss/v2"
-	"charm.land/lipgloss/v2/compat"
 )
-
-var (
-	// Adaptive colors for light/dark terminal themes.
-	// AdaptiveColor: {Light, Dark}
-	// Adaptive colors for WCAG AA contrast on both light and dark backgrounds.
-	// Light values target >= 4.5:1 against #F5F5F5; dark values target visibility on #1E1E1E.
-	dimColor       = compat.AdaptiveColor{Light: lipgloss.Color("#444"), Dark: lipgloss.Color("#888")}
-	subtleColor    = compat.AdaptiveColor{Light: lipgloss.Color("#555"), Dark: lipgloss.Color("#555")}
-	mutedColor     = compat.AdaptiveColor{Light: lipgloss.Color("#555"), Dark: lipgloss.Color("#666")}
-	faintColor     = compat.AdaptiveColor{Light: lipgloss.Color("#646464"), Dark: lipgloss.Color("#444")}
-	yellowColor    = compat.AdaptiveColor{Light: lipgloss.Color("#B45309"), Dark: lipgloss.Color("#EAB308")}
-	identCyanColor = compat.AdaptiveColor{Light: lipgloss.Color("#0E7490"), Dark: lipgloss.Color("#06B6D4")}
-	greenColor     = compat.AdaptiveColor{Light: lipgloss.Color("#15803D"), Dark: lipgloss.Color("#22C55E")}
-	redColor       = compat.AdaptiveColor{Light: lipgloss.Color("#B91C1C"), Dark: lipgloss.Color("#EF4444")}
-	orangeColor    = compat.AdaptiveColor{Light: lipgloss.Color("#C2410C"), Dark: lipgloss.Color("#F97316")}
-	blueColor      = compat.AdaptiveColor{Light: lipgloss.Color("#2563EB"), Dark: lipgloss.Color("#3B82F6")}
-
-	appStyle = lipgloss.NewStyle().Padding(0, 1)
-
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#7C3AED")).
-			Padding(0, 1)
-
-	statusBarStyle = lipgloss.NewStyle().
-			Foreground(dimColor).
-			Padding(0, 1)
-
-	issueIdentStyle = lipgloss.NewStyle().
-			Foreground(identCyanColor).
-			Bold(true)
-
-	worktreeMarker = lipgloss.NewStyle().
-			Foreground(greenColor)
-
-	urgentStyle = lipgloss.NewStyle().Foreground(redColor)
-	highStyle   = lipgloss.NewStyle().Foreground(orangeColor)
-	mediumStyle = lipgloss.NewStyle().Foreground(yellowColor)
-	lowStyle    = lipgloss.NewStyle().Foreground(blueColor)
-
-	setupStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#7C3AED")).
-			Padding(1, 2).
-			Width(50)
-
-	slotRunningStyle = lipgloss.NewStyle().Foreground(greenColor)
-	slotWaitingStyle = lipgloss.NewStyle().Foreground(yellowColor)
-	slotIdleStyle    = lipgloss.NewStyle().Foreground(dimColor)
-	slotEmptyStyle   = lipgloss.NewStyle().Foreground(faintColor)
-
-	commentDimStyle = lipgloss.NewStyle().Foreground(dimColor)
-
-	activeTabStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#7C3AED")).
-			Border(lipgloss.NormalBorder(), false, false, true, false).
-			BorderForeground(lipgloss.Color("#7C3AED")).
-			Padding(0, 2)
-
-	inactiveTabStyle = lipgloss.NewStyle().
-				Foreground(dimColor).
-				Border(lipgloss.NormalBorder(), false, false, true, false).
-				BorderForeground(faintColor).
-				Padding(0, 2)
-)
-
-type issueItem struct {
-	issue       Issue
-	hasWorktree bool
-	slotIdx     int
-	slotStatus  AgentStatus
-}
-
-func (i issueItem) Title() string {
-	icon := statusIcon(i.issue.State.Type)
-	pri := priorityIcon(i.issue.Priority)
-	wt := ""
-	if i.hasWorktree {
-		wt = worktreeMarker.Render(" 🌳")
-	}
-
-	slot := ""
-	if i.slotIdx >= 0 {
-		var style lipgloss.Style
-		switch i.slotStatus {
-		case AgentRunning:
-			style = slotRunningStyle
-		case AgentWaiting:
-			style = slotWaitingStyle
-		case AgentIdle:
-			style = slotIdleStyle
-		default:
-			style = slotEmptyStyle
-		}
-		slot = style.Render(fmt.Sprintf(" [%d:%s]", i.slotIdx+1, i.slotStatus.String()))
-	}
-
-	return fmt.Sprintf("%s %s %s %s%s%s",
-		icon, pri,
-		issueIdentStyle.Render(i.issue.Identifier),
-		i.issue.Title, wt, slot,
-	)
-}
-
-func (i issueItem) Description() string {
-	var parts []string
-	if i.issue.Assignee != nil {
-		name := i.issue.Assignee.DisplayName
-		if name == "" {
-			name = i.issue.Assignee.Name
-		}
-		if idx := strings.IndexByte(name, ' '); idx > 0 {
-			name = name[:idx]
-		}
-		parts = append(parts, name)
-	} else {
-		parts = append(parts, commentDimStyle.Render("unassigned"))
-	}
-
-	if i.issue.Project != nil {
-		parts = append(parts, i.issue.Project.Name)
-	}
-
-	if i.issue.DueDate != nil {
-		if t, err := time.Parse("2006-01-02", *i.issue.DueDate); err == nil {
-			days := int(time.Until(t).Hours() / 24)
-			switch {
-			case days < 0:
-				parts = append(parts, fmt.Sprintf("OVERDUE %dd", -days))
-			case days <= 3:
-				parts = append(parts, fmt.Sprintf("Due in %dd", days))
-			}
-		}
-	}
-
-	if i.issue.SLABreachesAt != nil {
-		if t, err := time.Parse(time.RFC3339, *i.issue.SLABreachesAt); err == nil {
-			d := time.Until(t)
-			var slaStr string
-			switch {
-			case d < 0:
-				slaStr = lipgloss.NewStyle().Foreground(redColor).Render("SLA BREACHED")
-			case d <= 24*time.Hour:
-				slaStr = lipgloss.NewStyle().Foreground(redColor).Render(fmt.Sprintf("SLA %dh", int(d.Hours())))
-			case d <= 3*24*time.Hour:
-				slaStr = lipgloss.NewStyle().Foreground(orangeColor).Render(fmt.Sprintf("SLA %dd", int(d.Hours()/24)))
-			default:
-				slaStr = commentDimStyle.Render(fmt.Sprintf("SLA %dd", int(d.Hours()/24)))
-			}
-			parts = append(parts, slaStr)
-		}
-	}
-
-	if n := len(i.issue.Children.Nodes); n > 0 {
-		done := 0
-		for _, c := range i.issue.Children.Nodes {
-			if c.State.Type == "completed" {
-				done++
-			}
-		}
-		parts = append(parts, fmt.Sprintf("[%d/%d]", done, n))
-	}
-
-	if labels := i.issue.Labels.Nodes; len(labels) > 0 {
-		maxLabels := 2
-		if len(labels) < maxLabels {
-			maxLabels = len(labels)
-		}
-		for _, l := range labels[:maxLabels] {
-			style := lipgloss.NewStyle().Foreground(lipgloss.Color(l.Color))
-			parts = append(parts, style.Render(l.Name))
-		}
-		if remaining := len(labels) - maxLabels; remaining > 0 {
-			parts = append(parts, commentDimStyle.Render(fmt.Sprintf("+%d", remaining)))
-		}
-	}
-
-	return strings.Join(parts, " | ")
-}
-
-func (i issueItem) FilterValue() string {
-	return i.issue.Identifier + " " + i.issue.Title
-}
-
-type launchOption struct {
-	action    string
-	title     string
-	desc      string
-	slotIndex int
-}
-
-func (l launchOption) Title() string       { return l.title }
-func (l launchOption) Description() string { return l.desc }
-func (l launchOption) FilterValue() string { return l.title }
-
-type linkItem struct {
-	label   string
-	value   string
-	isIssue bool
-}
-
-func (l linkItem) Title() string       { return l.label }
-func (l linkItem) Description() string { return "" }
-func (l linkItem) FilterValue() string { return l.label }
-
-func statusIcon(stateType string) string {
-	switch stateType {
-	case "backlog":
-		return lipgloss.NewStyle().Foreground(subtleColor).Render("○")
-	case "unstarted":
-		return lipgloss.NewStyle().Foreground(dimColor).Render("○")
-	case "started":
-		return lipgloss.NewStyle().Foreground(yellowColor).Render("●")
-	case "completed":
-		return lipgloss.NewStyle().Foreground(greenColor).Render("✓")
-	case "cancelled":
-		return lipgloss.NewStyle().Foreground(mutedColor).Render("✗")
-	default:
-		return "?"
-	}
-}
-
-func priorityIcon(p int) string {
-	switch p {
-	case 1:
-		return urgentStyle.Render("▲")
-	case 2:
-		return highStyle.Render("▲")
-	case 3:
-		return mediumStyle.Render("■")
-	case 4:
-		return lowStyle.Render("▼")
-	default:
-		return " "
-	}
-}
-
-type issuesLoadedMsg struct {
-	issues []Issue
-	err    error
-}
-
-type worktreesLoadedMsg struct {
-	branches map[string]bool
-}
-
-type worktreeCreatedMsg struct {
-	path       string
-	identifier string
-	err        error
-	hookErr    error
-}
-
-type claudeLaunchedMsg struct {
-	identifier string
-	err        error
-}
-
-type cmuxSlotOpenedMsg struct {
-	slotIdx    int
-	identifier string
-	wtPath     string
-	err        error
-}
-
-type teamsLoadedMsg struct {
-	err error
-}
-
-type setupCompleteMsg struct {
-	cfg Config
-}
-
-type commentPostedMsg struct {
-	identifier string
-	err        error
-}
-
-type commentsLoadedMsg struct {
-	issueID  string
-	comments []Comment
-	err      error
-}
-
-type launchReadyMsg struct {
-	issue  Issue
-	wtPath string
-	prompt string
-}
-
-type statusPollMsg struct{}
-
-type viewerLoadedMsg struct {
-	viewer *Viewer
-	err    error
-}
-
-type projectsLoadedMsg struct {
-	projects []Project
-	err      error
-}
-
-type statesLoadedMsg struct {
-	states []WorkflowState
-	err    error
-}
-
-type issueAssignedMsg struct {
-	identifier string
-	err        error
-}
-
-type issueUnassignedMsg struct {
-	identifier string
-	err        error
-}
-
-type issueStateChangedMsg struct {
-	identifier string
-	err        error
-}
-
-type branchIssueFoundMsg struct {
-	issue *Issue
-}
-
-type issueNavigatedMsg struct {
-	issue *Issue
-	err   error
-}
-
-type detailContentMsg struct {
-	issueID string
-	content string
-}
-
-type searchResultsMsg struct {
-	issues []Issue
-	err    error
-}
-
-type prefetchTickMsg struct {
-	seq int
-}
-
-type teamSwitchedMsg struct {
-	cfg Config
-	err error
-}
 
 type viewMode int
 
@@ -384,6 +31,7 @@ const (
 	viewLinkList
 	viewSortPicker
 	viewLabelPicker
+	viewWorktreeList
 )
 
 type settingsDraft struct {
@@ -485,6 +133,8 @@ type Model struct {
 	linkList         list.Model
 	linkReturnToView viewMode
 
+	worktreeList list.Model
+
 	detailHistory       []*Issue
 	pendingHistoryIssue *Issue
 
@@ -501,11 +151,11 @@ type confirmAction int
 
 const (
 	confirmQuit confirmAction = iota
-	confirmCloseSlot
 	confirmPostComment
 	confirmAssign
 	confirmUnassign
 	confirmStateChange
+	confirmRemoveWorktree
 )
 
 type confirmDialog struct {
@@ -516,10 +166,11 @@ type confirmDialog struct {
 }
 
 type keyMap struct {
-	Navigate   key.Binding
-	Claude     key.Binding
-	Worktree   key.Binding
-	Close      key.Binding
+	Navigate        key.Binding
+	Claude          key.Binding
+	Worktree     key.Binding
+	Remove       key.Binding
+	WorktreeList key.Binding
 	Comment    key.Binding
 	Detail     key.Binding
 	Filter     key.Binding
@@ -542,8 +193,9 @@ func defaultKeyMap(multiTeam bool) keyMap {
 	km := keyMap{
 		Navigate:   key.NewBinding(key.WithKeys("j", "k"), key.WithHelp("j/k", "navigate")),
 		Claude:     key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "claude+worktree")),
-		Worktree:   key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "worktree")),
-		Close:      key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "close slot")),
+		Worktree:     key.NewBinding(key.WithKeys("W"), key.WithHelp("W", "create worktree")),
+		Remove:       key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "remove worktree")),
+		WorktreeList: key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "worktrees")),
 		Comment:    key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "comment")),
 		Detail:     key.NewBinding(key.WithKeys("d", "enter"), key.WithHelp("enter/d", "detail")),
 		Filter:     key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "cycle filter")),
@@ -573,11 +225,19 @@ func (k keyMap) ShortHelp() []key.Binding {
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Navigate, k.Claude, k.Worktree, k.Close},
+		{k.Navigate, k.Claude, k.Worktree, k.Remove, k.WorktreeList},
 		{k.Detail, k.Filter, k.FilterPick, k.Search},
 		{k.Project, k.Label, k.Assign, k.Unassign, k.Links, k.TeamSwitch},
 		{k.Open, k.Refresh, k.Setup, k.Help, k.Quit},
 	}
+}
+
+func (m *Model) getBranchName(identifier string) string {
+	return m.cfg.BranchPrefix + strings.ToLower(identifier)
+}
+
+func (m *Model) hasWorktree(identifier string) bool {
+	return m.worktreeBranches[m.getBranchName(identifier)]
 }
 
 func (m *Model) selectedIssue() *Issue {
@@ -592,26 +252,18 @@ func (m *Model) selectedIssue() *Issue {
 }
 
 func (m *Model) rebuildList() {
-	slotMap := make(map[string]*WorktreeSlot)
-	if m.paneManager != nil {
-		for _, slot := range m.paneManager.Slots() {
-			if slot != nil {
-				slotMap[slot.Issue.Identifier] = slot
-			}
-		}
-	}
-
 	items := make([]list.Item, len(m.issues))
 	for i, issue := range m.issues {
-		branch := m.cfg.BranchPrefix + strings.ToLower(issue.Identifier)
 		item := issueItem{
 			issue:       issue,
-			hasWorktree: m.worktreeBranches[branch],
+			hasWorktree: m.hasWorktree(issue.Identifier),
 			slotIdx:     -1,
 		}
-		if slot, ok := slotMap[issue.Identifier]; ok {
-			item.slotIdx = slot.Index
-			item.slotStatus = slot.Status
+		if m.paneManager != nil {
+			if slot, _ := m.paneManager.FindSlotByIdentifier(issue.Identifier); slot != nil {
+				item.slotIdx = slot.Index
+				item.slotStatus = slot.Status
+			}
 		}
 		items[i] = item
 	}

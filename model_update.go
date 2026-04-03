@@ -26,6 +26,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.list.SetSize(msg.Width-2, listHeight)
 		m.linkList.SetSize(msg.Width-4, msg.Height-4)
+		m.worktreeList.SetSize(msg.Width-4, msg.Height-4)
 		if m.settingsTabs[0] != nil {
 			w := msg.Width - 4
 			if w < 60 {
@@ -106,6 +107,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSearch(msg)
 		case viewLinkList:
 			return m.updateLinkList(msg)
+		case viewWorktreeList:
+			return m.updateWorktreeList(msg)
 		default:
 			return m.updateList(msg)
 		}
@@ -205,10 +208,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case launchReadyMsg:
+		if msg.hookErr != nil {
+			m.statusMsg = fmt.Sprintf("Warning: post-create hook failed: %v", msg.hookErr)
+		}
 		if m.useCmux && m.paneManager != nil {
 			return m, m.openCmuxSlotWithPromptCmd(msg.issue, msg.wtPath, msg.prompt)
 		}
 		return m, m.launchClaudeWithPromptCmd(msg.wtPath, msg.issue, msg.prompt)
+
+	case worktreeRemovedMsg:
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("Error removing worktree: %v", msg.err)
+			return m, nil
+		}
+		m.statusMsg = fmt.Sprintf("Removed worktree for %s", msg.identifier)
+		m.rebuildList()
+		cmds := []tea.Cmd{m.fetchWorktrees()}
+		if m.view == viewWorktreeList {
+			cmds = append(cmds, m.fetchWorktreeListCmd())
+		}
+		return m, tea.Batch(cmds...)
+
+	case worktreeListLoadedMsg:
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("Error loading worktrees: %v", msg.err)
+			return m, nil
+		}
+		items := m.buildWorktreeListItems(msg.worktrees)
+		m.worktreeList.SetItems(items)
+		m.worktreeList.SetSize(m.width-4, m.height-4)
+		m.worktreeList.Select(0)
+		m.view = viewWorktreeList
+		wtCount := 0
+		for _, item := range items {
+			if _, ok := item.(worktreeItem); ok {
+				wtCount++
+			}
+		}
+		m.statusMsg = fmt.Sprintf("%d worktrees", wtCount)
+		return m, nil
 
 	case statusPollMsg:
 		if m.paneManager != nil {
@@ -454,7 +492,7 @@ func (m *Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, key.NewBinding(key.WithKeys("c"))):
 		return m.beginLaunchFromSelection()
 
-	case key.Matches(msg, key.NewBinding(key.WithKeys("w"))):
+	case key.Matches(msg, key.NewBinding(key.WithKeys("W"))):
 		return m.createSelectedWorktree()
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("x"))):
@@ -462,13 +500,20 @@ func (m *Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if issue == nil {
 			return m, nil
 		}
+		if !m.hasWorktree(issue.Identifier) {
+			m.statusMsg = fmt.Sprintf("%s has no worktree", issue.Identifier)
+			return m, nil
+		}
 		m.confirm = &confirmDialog{
-			action:  confirmCloseSlot,
-			title:   "Close Slot?",
-			message: fmt.Sprintf("Close the Claude session for %s?", issue.Identifier),
-			onYes:   func(m *Model) (tea.Model, tea.Cmd) { return m.closeSelectedSlot() },
+			action:  confirmRemoveWorktree,
+			title:   "Remove Worktree?",
+			message: fmt.Sprintf("Remove worktree and branch for %s? This cannot be undone.", issue.Identifier),
+			onYes:   func(m *Model) (tea.Model, tea.Cmd) { return m.removeSelectedWorktree() },
 		}
 		return m, nil
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("w"))):
+		return m, m.fetchWorktreeListCmd()
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("d", "enter"))):
 		return m.showSelectedIssueDetail()
