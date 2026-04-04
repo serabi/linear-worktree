@@ -8,6 +8,57 @@ import (
 	"testing"
 )
 
+// fakeCmuxIO is a recording fake implementing cmuxIO for tests. It never
+// touches a socket or subprocess.
+type fakeCmuxIO struct {
+	splitCalls  []struct{ ws, sf, dir string }
+	closeCalls  []struct{ ws, sf string }
+	sendCalls   []struct{ ws, sf, text string }
+	readCalls   []struct {
+		ws, sf string
+		lines  int
+	}
+	focusCalls []struct{ ws, sf string }
+
+	splitReturns func(ws, sf, dir string) (string, error)
+	readReturns  func(ws, sf string, lines int) (string, error)
+	closeErr     error
+}
+
+func (f *fakeCmuxIO) SplitSurface(ws, sf, dir string) (string, error) {
+	f.splitCalls = append(f.splitCalls, struct{ ws, sf, dir string }{ws, sf, dir})
+	if f.splitReturns != nil {
+		return f.splitReturns(ws, sf, dir)
+	}
+	return "new-surface", nil
+}
+
+func (f *fakeCmuxIO) CloseSurface(ws, sf string) error {
+	f.closeCalls = append(f.closeCalls, struct{ ws, sf string }{ws, sf})
+	return f.closeErr
+}
+
+func (f *fakeCmuxIO) SendText(ws, sf, text string) error {
+	f.sendCalls = append(f.sendCalls, struct{ ws, sf, text string }{ws, sf, text})
+	return nil
+}
+
+func (f *fakeCmuxIO) ReadText(ws, sf string, lines int) (string, error) {
+	f.readCalls = append(f.readCalls, struct {
+		ws, sf string
+		lines  int
+	}{ws, sf, lines})
+	if f.readReturns != nil {
+		return f.readReturns(ws, sf, lines)
+	}
+	return "", nil
+}
+
+func (f *fakeCmuxIO) FocusSurface(ws, sf string) error {
+	f.focusCalls = append(f.focusCalls, struct{ ws, sf string }{ws, sf})
+	return nil
+}
+
 // withFakeCmux installs a shell script named "cmux" into a temp dir and
 // prepends that dir to PATH for the duration of the test. The script
 // prints scriptBody to stdout and exits with exitCode.
@@ -393,5 +444,163 @@ func TestInferStatusScrolledPrompt(t *testing.T) {
 	// inferStatus should still detect the ❯ character anywhere in the blob.
 	if got := inferStatus(text); got != AgentIdle {
 		t.Errorf("inferStatus with scrolled ❯ = %v, want AgentIdle", got.Label())
+	}
+}
+
+func TestCloseSlotBoundsCheck(t *testing.T) {
+	fake := &fakeCmuxIO{}
+	pm := &PaneManager{client: fake, maxSlots: 3, workspaceID: "ws"}
+
+	tests := []struct {
+		name string
+		idx  int
+	}{
+		{"negative", -1},
+		{"equal to maxSlots", 3},
+		{"beyond maxSlots", 99},
+		{"valid but empty", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := pm.CloseSlot(tt.idx); err == nil {
+				t.Errorf("CloseSlot(%d) returned nil error, expected failure", tt.idx)
+			}
+		})
+	}
+	if len(fake.closeCalls) != 0 {
+		t.Errorf("CloseSurface should not be called on bounds failure, got %d calls", len(fake.closeCalls))
+	}
+}
+
+func TestCloseSlotFreesSlot(t *testing.T) {
+	fake := &fakeCmuxIO{}
+	pm := &PaneManager{client: fake, maxSlots: 3, workspaceID: "ws"}
+	pm.slots[1] = &WorktreeSlot{Index: 1, SurfaceID: "surf-1"}
+
+	if err := pm.CloseSlot(1); err != nil {
+		t.Fatalf("CloseSlot: %v", err)
+	}
+	if pm.slots[1] != nil {
+		t.Error("slot 1 should be nil after close")
+	}
+	if len(fake.closeCalls) != 1 {
+		t.Fatalf("expected 1 CloseSurface call, got %d", len(fake.closeCalls))
+	}
+	if fake.closeCalls[0].sf != "surf-1" {
+		t.Errorf("CloseSurface surface = %q, want surf-1", fake.closeCalls[0].sf)
+	}
+}
+
+// TestCloseSlotPreservesWorktreeOnDisk verifies the slot/worktree lifecycle
+// distinction (see PR #43): closing a cmux slot must not remove the
+// worktree directory from disk.
+func TestCloseSlotPreservesWorktreeOnDisk(t *testing.T) {
+	wtDir := t.TempDir()
+	marker := filepath.Join(wtDir, "keep-me.txt")
+	if err := os.WriteFile(marker, []byte("x"), 0644); err != nil {
+		t.Fatalf("write marker: %v", err)
+	}
+
+	fake := &fakeCmuxIO{}
+	pm := &PaneManager{client: fake, maxSlots: 3, workspaceID: "ws"}
+	pm.slots[0] = &WorktreeSlot{
+		Index:        0,
+		SurfaceID:    "s0",
+		WorktreePath: wtDir,
+	}
+
+	if err := pm.CloseSlot(0); err != nil {
+		t.Fatalf("CloseSlot: %v", err)
+	}
+	if _, err := os.Stat(wtDir); err != nil {
+		t.Errorf("worktree dir should still exist after CloseSlot: %v", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Errorf("worktree contents should be untouched: %v", err)
+	}
+}
+
+func TestCloseSlotPropagatesError(t *testing.T) {
+	fake := &fakeCmuxIO{closeErr: fmt.Errorf("socket closed")}
+	pm := &PaneManager{client: fake, maxSlots: 3, workspaceID: "ws"}
+	pm.slots[0] = &WorktreeSlot{Index: 0, SurfaceID: "s0"}
+
+	err := pm.CloseSlot(0)
+	if err == nil || !strings.Contains(err.Error(), "socket closed") {
+		t.Errorf("CloseSlot err = %v, want 'socket closed'", err)
+	}
+	// Slot should still be freed even on error (current behavior).
+	if pm.slots[0] != nil {
+		t.Error("slot should be freed even when CloseSurface errors")
+	}
+}
+
+func TestPollStatusUpdatesPerSlot(t *testing.T) {
+	perSurface := map[string]string{
+		"s0": "some output\nctrl+c to interrupt",      // running
+		"s1": "Allow this action? [y/n]",              // waiting
+		"s2": "done\n❯ ",                              // idle
+	}
+	fake := &fakeCmuxIO{
+		readReturns: func(ws, sf string, lines int) (string, error) {
+			return perSurface[sf], nil
+		},
+	}
+	pm := &PaneManager{client: fake, maxSlots: 3, workspaceID: "ws"}
+	pm.slots[0] = &WorktreeSlot{Index: 0, SurfaceID: "s0", Status: AgentInactive}
+	pm.slots[1] = &WorktreeSlot{Index: 1, SurfaceID: "s1", Status: AgentInactive}
+	pm.slots[2] = &WorktreeSlot{Index: 2, SurfaceID: "s2", Status: AgentInactive}
+
+	pm.PollStatus()
+
+	wantStatuses := []AgentStatus{AgentRunning, AgentWaiting, AgentIdle}
+	for i, want := range wantStatuses {
+		if pm.slots[i].Status != want {
+			t.Errorf("slot[%d].Status = %v, want %v", i, pm.slots[i].Status.Label(), want.Label())
+		}
+	}
+	// ReadText should be called once per occupied slot with the expected window.
+	if len(fake.readCalls) != 3 {
+		t.Fatalf("got %d ReadText calls, want 3", len(fake.readCalls))
+	}
+	for _, call := range fake.readCalls {
+		if call.lines != statusReadLines {
+			t.Errorf("ReadText lines = %d, want %d", call.lines, statusReadLines)
+		}
+	}
+}
+
+func TestPollStatusSkipsEmptySlots(t *testing.T) {
+	fake := &fakeCmuxIO{
+		readReturns: func(ws, sf string, lines int) (string, error) {
+			return "❯ ", nil
+		},
+	}
+	pm := &PaneManager{client: fake, maxSlots: 3, workspaceID: "ws"}
+	pm.slots[1] = &WorktreeSlot{Index: 1, SurfaceID: "s1", Status: AgentInactive}
+
+	pm.PollStatus()
+
+	if len(fake.readCalls) != 1 {
+		t.Fatalf("got %d ReadText calls, want 1 (only slot 1 occupied)", len(fake.readCalls))
+	}
+	if fake.readCalls[0].sf != "s1" {
+		t.Errorf("ReadText surface = %q, want s1", fake.readCalls[0].sf)
+	}
+}
+
+func TestPollStatusReadErrorDoesNotChangeStatus(t *testing.T) {
+	fake := &fakeCmuxIO{
+		readReturns: func(ws, sf string, lines int) (string, error) {
+			return "", fmt.Errorf("read failed")
+		},
+	}
+	pm := &PaneManager{client: fake, maxSlots: 3, workspaceID: "ws"}
+	pm.slots[0] = &WorktreeSlot{Index: 0, SurfaceID: "s0", Status: AgentRunning}
+
+	pm.PollStatus()
+
+	if pm.slots[0].Status != AgentRunning {
+		t.Errorf("status should be unchanged on read error, got %v", pm.slots[0].Status.Label())
 	}
 }
