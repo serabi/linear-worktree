@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"strings"
 	"text/template"
+
+	"github.com/google/shlex"
 )
 
 func LaunchClaude(wtPath string, issue Issue, cfg Config) error {
@@ -73,7 +75,14 @@ func buildPrompt(issue Issue, cfg Config) string {
 func buildShellCmd(prompt string, cfg Config) string {
 	parts := []string{cfg.ClaudeCommand}
 	if cfg.ClaudeArgs != "" {
-		parts = append(parts, cfg.ClaudeArgs)
+		tokens, err := shlex.Split(cfg.ClaudeArgs)
+		if err != nil {
+			debugLog.Printf("claude_args parse error: %v", err)
+			tokens = strings.Fields(cfg.ClaudeArgs)
+		}
+		for _, tok := range tokens {
+			parts = append(parts, shellQuote(tok))
+		}
 	}
 	if prompt != "" {
 		parts = append(parts, shellQuote(prompt))
