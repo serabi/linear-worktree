@@ -1345,5 +1345,90 @@ func TestRelativeTimeUntil(t *testing.T) {
 	}
 }
 
+func TestBuildLaunchOptions(t *testing.T) {
+	issue := &Issue{Identifier: "TEST-42", Title: "Thing"}
+
+	tests := []struct {
+		name        string
+		hasSlot     bool
+		slotStatus  AgentStatus
+		hasWorktree bool
+		wantActions []string
+	}{
+		{
+			name:        "neither slot nor worktree",
+			wantActions: []string{"prompt", "blank"},
+		},
+		{
+			name:        "worktree only (no slot)",
+			hasWorktree: true,
+			wantActions: []string{"prompt", "blank", "existing"},
+		},
+		{
+			name:        "slot only (no worktree)",
+			hasSlot:     true,
+			slotStatus:  AgentRunning,
+			wantActions: []string{"resume", "prompt", "blank"},
+		},
+		{
+			name:        "both slot and worktree suppresses existing",
+			hasSlot:     true,
+			slotStatus:  AgentIdle,
+			hasWorktree: true,
+			wantActions: []string{"resume", "prompt", "blank"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := NewModel(Config{BranchPrefix: "feature/"})
+			m.paneManager = &PaneManager{maxSlots: 3}
+			if tt.hasSlot {
+				m.paneManager.slots[1] = &WorktreeSlot{
+					Index:  1,
+					Issue:  *issue,
+					Status: tt.slotStatus,
+				}
+			}
+			if tt.hasWorktree {
+				m.worktreeBranches = map[string]bool{"feature/test-42": true}
+			}
+
+			items := m.buildLaunchOptions(issue)
+			if len(items) != len(tt.wantActions) {
+				t.Fatalf("got %d items, want %d: %+v", len(items), len(tt.wantActions), items)
+			}
+			for i, item := range items {
+				opt, ok := item.(launchOption)
+				if !ok {
+					t.Fatalf("item[%d] is %T, want launchOption", i, item)
+				}
+				if opt.action != tt.wantActions[i] {
+					t.Errorf("item[%d].action = %q, want %q", i, opt.action, tt.wantActions[i])
+				}
+			}
+		})
+	}
+}
+
+func TestBuildLaunchOptionsNilPaneManager(t *testing.T) {
+	m := NewModel(Config{BranchPrefix: "feature/"})
+	m.paneManager = nil
+	m.worktreeBranches = map[string]bool{"feature/test-1": true}
+
+	items := m.buildLaunchOptions(&Issue{Identifier: "TEST-1"})
+	// With nil paneManager: no resume option, worktree still detected.
+	wantActions := []string{"prompt", "blank", "existing"}
+	if len(items) != len(wantActions) {
+		t.Fatalf("got %d items, want %d", len(items), len(wantActions))
+	}
+	for i, item := range items {
+		opt := item.(launchOption)
+		if opt.action != wantActions[i] {
+			t.Errorf("item[%d].action = %q, want %q", i, opt.action, wantActions[i])
+		}
+	}
+}
+
 // Ensure huh is used (compile-time check)
 var _ = huh.StateCompleted
