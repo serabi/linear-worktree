@@ -336,18 +336,61 @@ func TestBuildRemoveWorktreeMessage(t *testing.T) {
 	}
 }
 
+func TestWorktreeDirtyModifiedTrackedFile(t *testing.T) {
+	repoDir := setupTestRepo(t)
+	worktreeBase := filepath.Join(t.TempDir(), "worktrees")
+	cfg := Config{BranchPrefix: "feature/", WorktreeBase: worktreeBase}
+
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(origDir) }()
+
+	// Add and commit a tracked file in the main repo so the worktree inherits it.
+	tracked := filepath.Join(repoDir, "tracked.txt")
+	if err := os.WriteFile(tracked, []byte("original"), 0644); err != nil {
+		t.Fatalf("write tracked: %v", err)
+	}
+	for _, args := range [][]string{
+		{"git", "add", "tracked.txt"},
+		{"git", "commit", "-m", "add tracked"},
+	} {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = repoDir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v: %s", args, string(out))
+		}
+	}
+
+	path, err := CreateWorktree("DIRTY-MOD", cfg)
+	if err != nil {
+		t.Fatalf("CreateWorktree: %v", err)
+	}
+
+	// Modify the tracked file in the worktree.
+	if err := os.WriteFile(filepath.Join(path, "tracked.txt"), []byte("modified"), 0644); err != nil {
+		t.Fatalf("modify file: %v", err)
+	}
+
+	dirty, summary, err := WorktreeDirty(path)
+	if err != nil {
+		t.Fatalf("WorktreeDirty: %v", err)
+	}
+	if !dirty {
+		t.Error("modified tracked file should be dirty")
+	}
+	if !strings.Contains(summary, "uncommitted") {
+		t.Errorf("summary %q should mention uncommitted", summary)
+	}
+}
+
 func TestBuildRemoveWorktreeMessageDirty(t *testing.T) {
 	repoDir := setupTestRepo(t)
 	worktreeBase := filepath.Join(t.TempDir(), "worktrees")
-	cfg := Config{
-		BranchPrefix: "feature/",
-		WorktreeBase: worktreeBase,
-	}
+	cfg := Config{BranchPrefix: "feature/", WorktreeBase: worktreeBase}
 
-	origDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
+	origDir, _ := os.Getwd()
 	if err := os.Chdir(repoDir); err != nil {
 		t.Fatalf("chdir: %v", err)
 	}
@@ -357,18 +400,26 @@ func TestBuildRemoveWorktreeMessageDirty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWorktree: %v", err)
 	}
-
-	// Make it dirty with an untracked file.
-	if err := os.WriteFile(filepath.Join(path, "new.txt"), []byte("x"), 0644); err != nil {
-		t.Fatalf("write file: %v", err)
+	if err := os.WriteFile(filepath.Join(path, "unsaved.txt"), []byte("x"), 0644); err != nil {
+		t.Fatalf("write: %v", err)
 	}
 
 	msg := BuildRemoveWorktreeMessage(path, "feature/dirty-msg")
 	if !strings.Contains(msg, "WARNING") {
-		t.Errorf("dirty worktree should produce WARNING: %q", msg)
+		t.Errorf("dirty worktree message missing WARNING: %q", msg)
 	}
 	if !strings.Contains(msg, "uncommitted") {
-		t.Errorf("warning should mention uncommitted: %q", msg)
+		t.Errorf("message should mention uncommitted count: %q", msg)
+	}
+	if !strings.Contains(msg, "feature/dirty-msg") {
+		t.Errorf("message missing label: %q", msg)
+	}
+}
+
+func TestWorktreeDirtyNonExistentPath(t *testing.T) {
+	_, _, err := WorktreeDirty("/nonexistent/path/should/not/exist")
+	if err == nil {
+		t.Error("expected error for nonexistent path")
 	}
 }
 
