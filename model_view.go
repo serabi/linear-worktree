@@ -217,17 +217,7 @@ func (m Model) renderSlotBar() string {
 			continue
 		}
 
-		var style lipgloss.Style
-		switch slot.Status {
-		case AgentRunning:
-			style = slotRunningStyle
-		case AgentWaiting:
-			style = slotWaitingStyle
-		case AgentIdle:
-			style = slotIdleStyle
-		default:
-			style = slotEmptyStyle
-		}
+		style := slotBadgeStyle(m.cfg.SlotColorName(i), slot.Status)
 		parts[i] = style.Render(
 			fmt.Sprintf("[%d] %s %s (%s)", i+1, slot.Status.String(), slot.Issue.Identifier, slot.Status.Label()),
 		)

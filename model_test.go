@@ -393,6 +393,9 @@ func TestSettingsTabCount(t *testing.T) {
 	if m.settingsTabNames[2] != "Launch" {
 		t.Errorf("tab 2 name = %q, want 'Launch'", m.settingsTabNames[2])
 	}
+	if m.settingsTabNames[3] != "Slots" {
+		t.Errorf("tab 3 name = %q, want 'Slots'", m.settingsTabNames[3])
+	}
 }
 
 func TestSettingsActiveTab(t *testing.T) {

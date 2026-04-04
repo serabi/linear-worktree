@@ -27,6 +27,32 @@ type Config struct {
 	MaxSlots       int    `json:"max_slots"` // 2, 3, or 4
 	PostCreateHook string `json:"post_create_hook"`
 	PromptTemplate string `json:"prompt_template"`
+	SlotColors     []string `json:"slot_colors,omitempty"` // palette name per slot (indexed 0..3); see slotPaletteNames
+}
+
+// slotPaletteNames lists the palette entries accepted in Config.SlotColors.
+// Values map to adaptive colors via slotPaletteColor in model_theme.go.
+var slotPaletteNames = []string{"green", "blue", "purple", "orange", "pink", "cyan", "yellow", "red"}
+
+// defaultSlotColors returns the default per-slot palette assignment.
+var defaultSlotColors = []string{"green", "blue", "purple", "orange"}
+
+// SlotColorName returns the palette name configured for the given slot index,
+// falling back to the default assignment. The returned name is always a valid
+// palette entry.
+func (c Config) SlotColorName(idx int) string {
+	if idx >= 0 && idx < len(c.SlotColors) {
+		name := c.SlotColors[idx]
+		for _, valid := range slotPaletteNames {
+			if name == valid {
+				return name
+			}
+		}
+	}
+	if idx >= 0 && idx < len(defaultSlotColors) {
+		return defaultSlotColors[idx]
+	}
+	return "green"
 }
 
 func DefaultConfig() Config {

@@ -126,6 +126,7 @@ func (m *Model) buildWorktreeListItems(worktrees []Worktree) []list.Item {
 		if slot, ok := slotMap[wt.Path]; ok {
 			item.slotIdx = slot.Index
 			item.slotStatus = slot.Status
+			item.slotColor = m.cfg.SlotColorName(slot.Index)
 		}
 
 		if identifier != "" {

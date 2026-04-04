@@ -50,10 +50,22 @@ var (
 			Padding(1, 2).
 			Width(50)
 
-	slotRunningStyle = lipgloss.NewStyle().Foreground(greenColor)
 	slotWaitingStyle = lipgloss.NewStyle().Foreground(yellowColor)
-	slotIdleStyle    = lipgloss.NewStyle().Foreground(dimColor)
 	slotEmptyStyle   = lipgloss.NewStyle().Foreground(faintColor)
+
+	// slotPaletteColors maps palette names (see slotPaletteNames in config.go)
+	// to adaptive colors. Light variants target WCAG AA on #F5F5F5; dark
+	// variants target visibility on #1E1E1E.
+	slotPaletteColors = map[string]compat.AdaptiveColor{
+		"green":  {Light: lipgloss.Color("#15803D"), Dark: lipgloss.Color("#22C55E")},
+		"blue":   {Light: lipgloss.Color("#2563EB"), Dark: lipgloss.Color("#3B82F6")},
+		"purple": {Light: lipgloss.Color("#7C3AED"), Dark: lipgloss.Color("#A78BFA")},
+		"orange": {Light: lipgloss.Color("#C2410C"), Dark: lipgloss.Color("#F97316")},
+		"pink":   {Light: lipgloss.Color("#BE185D"), Dark: lipgloss.Color("#EC4899")},
+		"cyan":   {Light: lipgloss.Color("#0E7490"), Dark: lipgloss.Color("#06B6D4")},
+		"yellow": {Light: lipgloss.Color("#B45309"), Dark: lipgloss.Color("#EAB308")},
+		"red":    {Light: lipgloss.Color("#B91C1C"), Dark: lipgloss.Color("#EF4444")},
+	}
 
 	commentDimStyle = lipgloss.NewStyle().Foreground(dimColor)
 
@@ -70,3 +82,31 @@ var (
 				BorderForeground(faintColor).
 				Padding(0, 2)
 )
+
+// slotPaletteColor resolves a palette name to an AdaptiveColor. Unknown
+// names fall back to green.
+func slotPaletteColor(name string) compat.AdaptiveColor {
+	if c, ok := slotPaletteColors[name]; ok {
+		return c
+	}
+	return slotPaletteColors["green"]
+}
+
+// slotBadgeStyle returns the lipgloss style to render the status badge for the
+// given palette name and status. The badge is colored using the per-slot
+// palette (so different slots are visually distinct) except when the slot is
+// waiting on input -- that case forces the yellow waiting style so users
+// don't miss prompts.
+func slotBadgeStyle(paletteName string, status AgentStatus) lipgloss.Style {
+	if status == AgentWaiting {
+		return slotWaitingStyle
+	}
+	if status == AgentInactive {
+		return slotEmptyStyle
+	}
+	s := lipgloss.NewStyle().Foreground(slotPaletteColor(paletteName))
+	if status == AgentIdle {
+		s = s.Faint(true)
+	}
+	return s
+}

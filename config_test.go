@@ -30,6 +30,37 @@ func TestDefaultConfig(t *testing.T) {
 	}
 }
 
+func TestSlotColorName(t *testing.T) {
+	cfg := Config{}
+	// Defaults when unconfigured
+	want := []string{"green", "blue", "purple", "orange"}
+	for i, w := range want {
+		if got := cfg.SlotColorName(i); got != w {
+			t.Errorf("default SlotColorName(%d) = %q, want %q", i, got, w)
+		}
+	}
+
+	// Configured values
+	cfg.SlotColors = []string{"pink", "cyan", "yellow", "red"}
+	for i, w := range cfg.SlotColors {
+		if got := cfg.SlotColorName(i); got != w {
+			t.Errorf("SlotColorName(%d) = %q, want %q", i, got, w)
+		}
+	}
+
+	// Invalid palette name falls back to default
+	cfg.SlotColors = []string{"nonsense"}
+	if got := cfg.SlotColorName(0); got != "green" {
+		t.Errorf("invalid slot color should fall back to default 'green', got %q", got)
+	}
+
+	// Out-of-range index uses default assignment
+	cfg.SlotColors = []string{"pink"}
+	if got := cfg.SlotColorName(2); got != "purple" {
+		t.Errorf("SlotColorName(2) with single-entry config = %q, want 'purple'", got)
+	}
+}
+
 func TestConfigNeedsSetup(t *testing.T) {
 	cfg := DefaultConfig()
 	if !cfg.NeedsSetup() {

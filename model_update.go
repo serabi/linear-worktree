@@ -284,7 +284,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case setupCompleteMsg:
 		m.cfg = msg.cfg
 		m.view = viewList
-		m.settingsTabs = [3]*huh.Form{}
+		m.settingsTabs = [4]*huh.Form{}
 		m.settingsFirstRun = false
 		m.statusMsg = "Settings saved. API key stored in OS keychain."
 		m.keys.TeamSwitch.SetEnabled(len(m.cfg.Teams) > 1)

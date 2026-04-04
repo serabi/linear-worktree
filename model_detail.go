@@ -180,17 +180,7 @@ func (m Model) writeDetailMetadata(b *strings.Builder, issue *Issue, ctx detailR
 		wtStatus := worktreeMarker.Render("active")
 		if m.paneManager != nil {
 			if slot, _ := m.paneManager.FindSlotByIdentifier(issue.Identifier); slot != nil {
-				var style lipgloss.Style
-				switch slot.Status {
-				case AgentRunning:
-					style = slotRunningStyle
-				case AgentWaiting:
-					style = slotWaitingStyle
-				case AgentIdle:
-					style = slotIdleStyle
-				default:
-					style = slotEmptyStyle
-				}
+				style := slotBadgeStyle(m.cfg.SlotColorName(slot.Index), slot.Status)
 				wtStatus += " " + style.Render(fmt.Sprintf("[slot %d: %s]", slot.Index+1, slot.Status.Label()))
 			}
 		}

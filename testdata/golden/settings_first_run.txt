@@ -1,6 +1,6 @@
   Settings                                                                                        
-   [1] Credentials    [2] Worktree    [3] Launch                                                  
- ─────────────────────────────────────────────────                                                
+   [1] Credentials    [2] Worktree    [3] Launch    [4] Slots                                     
+ ──────────────────────────────────────────────────────────────                                   
                                                                                                   
  ┃ Linear API Key                                                                                 
  ┃ Create one at: https://linear.app/settings                                                     

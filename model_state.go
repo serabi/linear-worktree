@@ -46,6 +46,7 @@ type settingsDraft struct {
 	maxSlots   int
 	hook       string
 	prompt     string
+	slotColors [absoluteMaxSlots]string
 }
 
 type teamState struct {
@@ -101,8 +102,8 @@ type Model struct {
 	launchList  list.Model
 	promptArea  textarea.Model
 
-	settingsTabs      [3]*huh.Form
-	settingsTabNames  [3]string
+	settingsTabs      [4]*huh.Form
+	settingsTabNames  [4]string
 	settingsActiveTab int
 	settingsDraft     *settingsDraft
 	settingsFirstRun  bool
@@ -268,6 +269,7 @@ func (m *Model) rebuildList() {
 			if slot, _ := m.paneManager.FindSlotByIdentifier(issue.Identifier); slot != nil {
 				item.slotIdx = slot.Index
 				item.slotStatus = slot.Status
+				item.slotColor = m.cfg.SlotColorName(slot.Index)
 			}
 		}
 		items[i] = item

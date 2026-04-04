@@ -26,6 +26,9 @@ func (m *Model) initSettingsForm() {
 		hook:       m.cfg.PostCreateHook,
 		prompt:     m.cfg.PromptTemplate,
 	}
+	for i := 0; i < absoluteMaxSlots; i++ {
+		draft.slotColors[i] = m.cfg.SlotColorName(i)
+	}
 	if len(m.cfg.Teams) > 0 {
 		keys := make([]string, len(m.cfg.Teams))
 		for i, t := range m.cfg.Teams {
@@ -44,7 +47,7 @@ func (m *Model) initSettingsForm() {
 		w = 60
 	}
 
-	m.settingsTabNames = [3]string{"Credentials", "Worktree", "Launch"}
+	m.settingsTabNames = [4]string{"Credentials", "Worktree", "Launch", "Slots"}
 	for i := range m.settingsTabs {
 		m.settingsTabs[i] = m.buildTab(i, w)
 	}
@@ -95,7 +98,7 @@ func (m *Model) buildTab(index, w int) *huh.Form {
 					Value(&m.settingsDraft.branch),
 			),
 		).WithWidth(w).WithShowHelp(false).WithShowErrors(true)
-	default:
+	case 2:
 		return huh.NewForm(
 			huh.NewGroup(
 				huh.NewInput().
@@ -133,6 +136,23 @@ func (m *Model) buildTab(index, w int) *huh.Form {
 					).
 					Value(&m.settingsDraft.maxSlots),
 			),
+		).WithWidth(w).WithShowHelp(false).WithShowErrors(true)
+	default:
+		opts := make([]huh.Option[string], len(slotPaletteNames))
+		for i, name := range slotPaletteNames {
+			opts[i] = huh.NewOption(name, name)
+		}
+		fields := make([]huh.Field, absoluteMaxSlots)
+		for i := 0; i < absoluteMaxSlots; i++ {
+			slotNum := i + 1
+			fields[i] = huh.NewSelect[string]().
+				Title(fmt.Sprintf("Slot %d Color", slotNum)).
+				Description(fmt.Sprintf("Color used for the slot %d badge in the TUI. Waiting-on-input always shows yellow so you don't miss prompts.", slotNum)).
+				Options(opts...).
+				Value(&m.settingsDraft.slotColors[i])
+		}
+		return huh.NewForm(
+			huh.NewGroup(fields...),
 		).WithWidth(w).WithShowHelp(false).WithShowErrors(true)
 	}
 }
@@ -204,6 +224,12 @@ func (m *Model) handleSettingsCompleted() (tea.Model, tea.Cmd) {
 	newCfg.PostCreateHook = strings.TrimSpace(m.settingsDraft.hook)
 	newCfg.PromptTemplate = m.settingsDraft.prompt
 
+	slotColors := make([]string, absoluteMaxSlots)
+	for i := 0; i < absoluteMaxSlots; i++ {
+		slotColors[i] = m.settingsDraft.slotColors[i]
+	}
+	newCfg.SlotColors = slotColors
+
 	if newCfg.WorktreeBase == "" {
 		newCfg.WorktreeBase = "../worktrees"
 	}
@@ -214,7 +240,7 @@ func (m *Model) handleSettingsCompleted() (tea.Model, tea.Cmd) {
 		newCfg.BranchPrefix = "feature/"
 	}
 
-	m.settingsTabs = [3]*huh.Form{}
+	m.settingsTabs = [4]*huh.Form{}
 
 	oldKeys := make([]string, len(m.cfg.Teams))
 	for i, t := range m.cfg.Teams {
@@ -273,6 +299,9 @@ func (m *Model) updateSettings(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "3":
 		m.settingsActiveTab = 2
 		return m, nil
+	case "4":
+		m.settingsActiveTab = 3
+		return m, nil
 	case "ctrl+w":
 		if m.settingsActiveTab == 0 {
 			openBrowser("https://linear.app/settings")
@@ -289,7 +318,7 @@ func (m *Model) updateSettings(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.settingsFirstRun {
 			return m, nil
 		}
-		m.settingsTabs = [3]*huh.Form{}
+		m.settingsTabs = [4]*huh.Form{}
 		m.view = viewList
 		return m, nil
 	}
@@ -318,7 +347,7 @@ func (m *Model) updateSettings(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmd, initCmd)
 		}
 		if !m.settingsFirstRun {
-			m.settingsTabs = [3]*huh.Form{}
+			m.settingsTabs = [4]*huh.Form{}
 			m.view = viewList
 			return m, nil
 		}
