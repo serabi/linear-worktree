@@ -17,6 +17,7 @@ const (
 	defaultSocketPath  = "/tmp/cmux.sock"
 	defaultMaxSlots    = 3
 	absoluteMaxSlots   = 4
+	statusReadLines    = 20 // lines read from the bottom of each pane for inferStatus; must catch Claude Code prompts that may scroll above the last few lines
 )
 
 // CmuxClient manages communication with cmux via its Unix socket API.
@@ -476,7 +477,7 @@ func (pm *PaneManager) PollStatus() {
 		if slot == nil {
 			continue
 		}
-		text, err := pm.client.ReadText(pm.workspaceID, slot.SurfaceID, 5)
+		text, err := pm.client.ReadText(pm.workspaceID, slot.SurfaceID, statusReadLines)
 		if err != nil {
 			continue
 		}
