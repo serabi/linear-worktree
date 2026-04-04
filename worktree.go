@@ -126,6 +126,72 @@ func CreateWorktree(identifier string, cfg Config) (string, error) {
 	return wtPath, nil
 }
 
+// BuildRemoveWorktreeMessage returns a confirm-dialog message for removing a
+// worktree. If wtPath is a dirty worktree, a warning line is prepended. An
+// empty wtPath skips the dirty check (used when the path is unknown).
+func BuildRemoveWorktreeMessage(wtPath, label string) string {
+	base := fmt.Sprintf("Remove worktree and branch %s? This cannot be undone.", label)
+	if wtPath == "" {
+		return base
+	}
+	dirty, summary, err := WorktreeDirty(wtPath)
+	if err != nil || !dirty {
+		return base
+	}
+	return fmt.Sprintf("WARNING: %s. This work will be lost.\n\n%s", summary, base)
+}
+
+// WorktreeDirty reports whether the worktree at wtPath has uncommitted changes,
+// untracked files, or unpushed commits. The summary string is a short,
+// human-readable description suitable for inclusion in a confirm dialog
+// (e.g. "3 uncommitted, 2 unpushed"). An empty summary means not dirty.
+func WorktreeDirty(wtPath string) (bool, string, error) {
+	if _, err := os.Stat(wtPath); err != nil {
+		return false, "", err
+	}
+
+	statusCmd := exec.Command("git", "status", "--porcelain")
+	statusCmd.Dir = wtPath
+	statusOut, err := statusCmd.Output()
+	if err != nil {
+		return false, "", fmt.Errorf("git status: %w", err)
+	}
+
+	uncommitted := 0
+	for _, line := range strings.Split(strings.TrimRight(string(statusOut), "\n"), "\n") {
+		if line != "" {
+			uncommitted++
+		}
+	}
+
+	// Best-effort unpushed check. A missing upstream is not an error: treat as
+	// zero unpushed for dialog purposes (the user will still see uncommitted
+	// counts and the branch will be deleted).
+	unpushed := 0
+	logCmd := exec.Command("git", "log", "@{u}..", "--oneline")
+	logCmd.Dir = wtPath
+	if logOut, logErr := logCmd.Output(); logErr == nil {
+		for _, line := range strings.Split(strings.TrimRight(string(logOut), "\n"), "\n") {
+			if line != "" {
+				unpushed++
+			}
+		}
+	}
+
+	if uncommitted == 0 && unpushed == 0 {
+		return false, "", nil
+	}
+
+	parts := []string{}
+	if uncommitted > 0 {
+		parts = append(parts, fmt.Sprintf("%d uncommitted", uncommitted))
+	}
+	if unpushed > 0 {
+		parts = append(parts, fmt.Sprintf("%d unpushed", unpushed))
+	}
+	return true, strings.Join(parts, ", "), nil
+}
+
 func RemoveWorktree(wtPath string) error {
 	root, err := FindRepoRoot()
 	if err != nil {

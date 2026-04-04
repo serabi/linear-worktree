@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -269,6 +270,69 @@ func TestRemoveWorktreeDeletesSlashBranch(t *testing.T) {
 	}
 	if len(out) != 0 {
 		t.Fatalf("branch feature/test-777 still exists after remove: %q", string(out))
+	}
+}
+
+func TestWorktreeDirty(t *testing.T) {
+	repoDir := setupTestRepo(t)
+	worktreeBase := filepath.Join(t.TempDir(), "worktrees")
+	cfg := Config{
+		BranchPrefix: "feature/",
+		WorktreeBase: worktreeBase,
+	}
+
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(origDir); err != nil {
+			t.Errorf("restore dir: %v", err)
+		}
+	}()
+
+	path, err := CreateWorktree("DIRTY-1", cfg)
+	if err != nil {
+		t.Fatalf("CreateWorktree: %v", err)
+	}
+
+	// Clean worktree should report not dirty.
+	dirty, summary, err := WorktreeDirty(path)
+	if err != nil {
+		t.Fatalf("WorktreeDirty clean: %v", err)
+	}
+	if dirty {
+		t.Errorf("clean worktree reported dirty: %q", summary)
+	}
+
+	// Add an untracked file.
+	if err := os.WriteFile(filepath.Join(path, "new.txt"), []byte("x"), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	dirty, summary, err = WorktreeDirty(path)
+	if err != nil {
+		t.Fatalf("WorktreeDirty untracked: %v", err)
+	}
+	if !dirty {
+		t.Errorf("worktree with untracked file not reported dirty")
+	}
+	if !strings.Contains(summary, "uncommitted") {
+		t.Errorf("summary %q should mention uncommitted", summary)
+	}
+}
+
+func TestBuildRemoveWorktreeMessage(t *testing.T) {
+	// Empty path skips dirty check.
+	msg := BuildRemoveWorktreeMessage("", "feature/foo")
+	if !strings.Contains(msg, "feature/foo") {
+		t.Errorf("message missing label: %q", msg)
+	}
+	if strings.Contains(msg, "WARNING") {
+		t.Errorf("empty path should not produce warning: %q", msg)
 	}
 }
 

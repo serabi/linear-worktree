@@ -138,6 +138,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case worktreesLoadedMsg:
 		m.worktreeBranches = msg.branches
+		m.worktreePaths = msg.paths
 		m.rebuildList()
 		return m, nil
 
@@ -507,7 +508,7 @@ func (m *Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.confirm = &confirmDialog{
 			action:  confirmRemoveWorktree,
 			title:   "Remove Worktree?",
-			message: fmt.Sprintf("Remove worktree and branch for %s? This cannot be undone.", issue.Identifier),
+			message: BuildRemoveWorktreeMessage(m.worktreePathFor(issue.Identifier), fmt.Sprintf("for %s", issue.Identifier)),
 			onYes:   func(m *Model) (tea.Model, tea.Cmd) { return m.removeSelectedWorktree() },
 		}
 		return m, nil

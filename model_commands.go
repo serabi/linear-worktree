@@ -40,12 +40,14 @@ func (m Model) fetchWorktrees() tea.Cmd {
 	return func() tea.Msg {
 		wts, err := ListWorktrees()
 		branches := make(map[string]bool)
+		paths := make(map[string]string)
 		if err == nil {
 			for _, wt := range wts {
 				branches[wt.Branch] = true
+				paths[wt.Branch] = wt.Path
 			}
 		}
-		return worktreesLoadedMsg{branches: branches}
+		return worktreesLoadedMsg{branches: branches, paths: paths}
 	}
 }
 

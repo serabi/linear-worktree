@@ -413,7 +413,7 @@ func (m *Model) updateWorktreeList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.confirm = &confirmDialog{
 			action:  confirmRemoveWorktree,
 			title:   "Remove Worktree?",
-			message: fmt.Sprintf("Remove worktree and branch %s? This cannot be undone.", wi.branch),
+			message: BuildRemoveWorktreeMessage(wi.path, wi.branch),
 			onYes: func(m *Model) (tea.Model, tea.Cmd) {
 				if wi.slotIdx >= 0 && m.paneManager != nil {
 					_ = m.paneManager.CloseSlot(wi.slotIdx)

@@ -66,6 +66,7 @@ type Model struct {
 	list             list.Model
 	issues           []Issue
 	worktreeBranches map[string]bool
+	worktreePaths    map[string]string
 	filter           FilterMode
 	sortMode         SortMode
 	view             viewMode
@@ -238,6 +239,10 @@ func (m *Model) getBranchName(identifier string) string {
 
 func (m *Model) hasWorktree(identifier string) bool {
 	return m.worktreeBranches[m.getBranchName(identifier)]
+}
+
+func (m *Model) worktreePathFor(identifier string) string {
+	return m.worktreePaths[m.getBranchName(identifier)]
 }
 
 func (m *Model) selectedIssue() *Issue {
