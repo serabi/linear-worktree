@@ -184,7 +184,11 @@ func (w worktreeItem) Description() string {
 	if len(short) > 8 {
 		short = short[:8]
 	}
-	return fmt.Sprintf("%s  %s", short, w.path)
+	prefix := ""
+	if w.slotIdx >= 0 {
+		prefix = fmt.Sprintf("slot %d · ", w.slotIdx+1)
+	}
+	return fmt.Sprintf("%s%s  %s", prefix, short, w.path)
 }
 
 func (w worktreeItem) FilterValue() string {

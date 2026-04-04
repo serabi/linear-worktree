@@ -130,7 +130,7 @@ func CreateWorktree(identifier string, cfg Config) (string, error) {
 // worktree. If wtPath is a dirty worktree, a warning line is prepended. An
 // empty wtPath skips the dirty check (used when the path is unknown).
 func BuildRemoveWorktreeMessage(wtPath, label string) string {
-	base := fmt.Sprintf("Remove worktree and branch %s? This cannot be undone.", label)
+	base := fmt.Sprintf("Remove worktree and branch %s? This cannot be undone.\n(The cmux slot will also be closed if open.)", label)
 	if wtPath == "" {
 		return base
 	}

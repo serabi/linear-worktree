@@ -342,5 +342,10 @@ func renderLegend() string {
 		priorityIcon(3) + " Medium  " +
 		priorityIcon(4) + " Low"
 
-	return statusLegend + "\n\n" + priorityLegend
+	slotLegend := heading.Render("Slots vs Worktrees") + "\n" +
+		"A slot is a cmux pane running Claude. A worktree is an on-disk git checkout.\n" +
+		"Closing a slot leaves the worktree intact. Removing a worktree closes any\n" +
+		"attached slot and deletes the branch."
+
+	return statusLegend + "\n\n" + priorityLegend + "\n\n" + slotLegend
 }
