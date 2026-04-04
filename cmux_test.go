@@ -1,8 +1,34 @@
 package main
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
+
+// withFakeCmux installs a shell script named "cmux" into a temp dir and
+// prepends that dir to PATH for the duration of the test. The script
+// prints scriptBody to stdout and exits with exitCode.
+func withFakeCmux(t *testing.T, scriptBody string, exitCode int) {
+	t.Helper()
+	dir := t.TempDir()
+	script := "#!/bin/sh\n"
+	if scriptBody != "" {
+		script += "cat <<'EOF'\n" + scriptBody + "\nEOF\n"
+	}
+	if exitCode != 0 {
+		script += fmt.Sprintf("exit %d\n", exitCode)
+	}
+	path := filepath.Join(dir, "cmux")
+	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
+		t.Fatalf("write fake cmux: %v", err)
+	}
+	// Prepend the fake dir to the real PATH so /bin/sh and other utilities
+	// remain discoverable for the shebang and cat heredoc.
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
 
 func TestAgentStatusString(t *testing.T) {
 	tests := []struct {
@@ -271,5 +297,101 @@ func TestContainsAny(t *testing.T) {
 	}
 	if containsAny("", "anything") {
 		t.Error("empty string should not contain anything")
+	}
+}
+
+func TestCmuxIdentify(t *testing.T) {
+	tests := []struct {
+		name         string
+		scriptBody   string
+		exitCode     int
+		wantErr      bool
+		wantWorkspace string
+		wantSurface  string
+	}{
+		{
+			name:          "valid identify output",
+			scriptBody:    `{"caller":{"workspace_ref":"ws-123","surface_ref":"sf-456"}}`,
+			wantWorkspace: "ws-123",
+			wantSurface:   "sf-456",
+		},
+		{
+			name:       "missing caller field",
+			scriptBody: `{"other":"data"}`,
+			wantErr:    true,
+		},
+		{
+			name:       "malformed json",
+			scriptBody: `not json {{{`,
+			wantErr:    true,
+		},
+		{
+			name:       "non-zero exit",
+			scriptBody: `{"caller":{"workspace_ref":"ws","surface_ref":"sf"}}`,
+			exitCode:   1,
+			wantErr:    true,
+		},
+		{
+			name:          "extra fields ignored",
+			scriptBody:    `{"caller":{"workspace_ref":"w","surface_ref":"s","extra":"ignored"},"version":"1.0"}`,
+			wantWorkspace: "w",
+			wantSurface:   "s",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			withFakeCmux(t, tt.scriptBody, tt.exitCode)
+			result, err := cmuxIdentify()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil (result=%+v)", result)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result.workspaceRef != tt.wantWorkspace {
+				t.Errorf("workspaceRef = %q, want %q", result.workspaceRef, tt.wantWorkspace)
+			}
+			if result.surfaceRef != tt.wantSurface {
+				t.Errorf("surfaceRef = %q, want %q", result.surfaceRef, tt.wantSurface)
+			}
+		})
+	}
+}
+
+func TestCmuxIdentifyNotOnPath(t *testing.T) {
+	// Empty PATH: cmux lookup should fail.
+	t.Setenv("PATH", t.TempDir())
+	if _, err := cmuxIdentify(); err == nil {
+		t.Fatal("expected error when cmux not on PATH")
+	}
+}
+
+func TestStatusReadLinesConstant(t *testing.T) {
+	// The window must be wide enough to catch Claude Code prompts that
+	// scroll above the last few lines (see PR #41). 20 is the current value;
+	// dropping below 20 should be a deliberate decision.
+	if statusReadLines < 20 {
+		t.Errorf("statusReadLines = %d, must be >= 20 to catch scrolled prompts", statusReadLines)
+	}
+}
+
+func TestInferStatusScrolledPrompt(t *testing.T) {
+	// When Claude Code's prompt scrolls above the last few lines, the 20-line
+	// read window must still include it. Simulate a buffer where the prompt
+	// appears several lines above the bottom.
+	var lines []string
+	lines = append(lines, "❯ finished editing file.go")
+	for i := 0; i < 15; i++ {
+		lines = append(lines, fmt.Sprintf("output line %d", i))
+	}
+	text := strings.Join(lines, "\n")
+
+	// inferStatus should still detect the ❯ character anywhere in the blob.
+	if got := inferStatus(text); got != AgentIdle {
+		t.Errorf("inferStatus with scrolled ❯ = %v, want AgentIdle", got.Label())
 	}
 }
