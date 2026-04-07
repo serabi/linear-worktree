@@ -1345,5 +1345,237 @@ func TestRelativeTimeUntil(t *testing.T) {
 	}
 }
 
+func TestBuildLaunchOptions(t *testing.T) {
+	issue := &Issue{Identifier: "TEST-42", Title: "Thing"}
+
+	tests := []struct {
+		name        string
+		hasSlot     bool
+		slotStatus  AgentStatus
+		hasWorktree bool
+		wantActions []string
+	}{
+		{
+			name:        "neither slot nor worktree",
+			wantActions: []string{"prompt", "blank"},
+		},
+		{
+			name:        "worktree only (no slot)",
+			hasWorktree: true,
+			wantActions: []string{"prompt", "blank", "existing"},
+		},
+		{
+			name:        "slot only (no worktree)",
+			hasSlot:     true,
+			slotStatus:  AgentRunning,
+			wantActions: []string{"resume", "prompt", "blank"},
+		},
+		{
+			name:        "both slot and worktree suppresses existing",
+			hasSlot:     true,
+			slotStatus:  AgentIdle,
+			hasWorktree: true,
+			wantActions: []string{"resume", "prompt", "blank"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := NewModel(Config{BranchPrefix: "feature/"})
+			m.paneManager = &PaneManager{maxSlots: 3}
+			if tt.hasSlot {
+				m.paneManager.slots[1] = &WorktreeSlot{
+					Index:  1,
+					Issue:  *issue,
+					Status: tt.slotStatus,
+				}
+			}
+			if tt.hasWorktree {
+				m.worktreeBranches = map[string]bool{"feature/test-42": true}
+			}
+
+			items := m.buildLaunchOptions(issue)
+			if len(items) != len(tt.wantActions) {
+				t.Fatalf("got %d items, want %d: %+v", len(items), len(tt.wantActions), items)
+			}
+			for i, item := range items {
+				opt, ok := item.(launchOption)
+				if !ok {
+					t.Fatalf("item[%d] is %T, want launchOption", i, item)
+				}
+				if opt.action != tt.wantActions[i] {
+					t.Errorf("item[%d].action = %q, want %q", i, opt.action, tt.wantActions[i])
+				}
+			}
+		})
+	}
+}
+
+func TestBuildLaunchOptionsNilPaneManager(t *testing.T) {
+	m := NewModel(Config{BranchPrefix: "feature/"})
+	m.paneManager = nil
+	m.worktreeBranches = map[string]bool{"feature/test-1": true}
+
+	items := m.buildLaunchOptions(&Issue{Identifier: "TEST-1"})
+	// With nil paneManager: no resume option, worktree still detected.
+	wantActions := []string{"prompt", "blank", "existing"}
+	if len(items) != len(wantActions) {
+		t.Fatalf("got %d items, want %d", len(items), len(wantActions))
+	}
+	for i, item := range items {
+		opt := item.(launchOption)
+		if opt.action != wantActions[i] {
+			t.Errorf("item[%d].action = %q, want %q", i, opt.action, wantActions[i])
+		}
+	}
+}
+
+func TestLaunchWithPromptCmdSuccess(t *testing.T) {
+	repoDir := setupTestRepo(t)
+	worktreeBase := filepath.Join(t.TempDir(), "worktrees")
+
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(origDir) }()
+
+	markerDir := t.TempDir()
+	markerPath := filepath.Join(markerDir, "hook-ran")
+
+	m := NewModel(Config{
+		BranchPrefix:   "feature/",
+		WorktreeBase:   worktreeBase,
+		ClaudeCommand:  "claude",
+		PostCreateHook: "touch " + markerPath,
+	})
+
+	issue := Issue{Identifier: "LWPC-1", Title: "Launch with prompt test"}
+	cmd := m.launchWithPromptCmd(issue, "hello prompt")
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd")
+	}
+	msg := cmd()
+
+	ready, ok := msg.(launchReadyMsg)
+	if !ok {
+		t.Fatalf("got %T, want launchReadyMsg", msg)
+	}
+	if ready.issue.Identifier != "LWPC-1" {
+		t.Errorf("issue.Identifier = %q, want LWPC-1", ready.issue.Identifier)
+	}
+	if ready.prompt != "hello prompt" {
+		t.Errorf("prompt = %q, want 'hello prompt'", ready.prompt)
+	}
+	if ready.hookErr != nil {
+		t.Errorf("hookErr = %v, want nil", ready.hookErr)
+	}
+	wantPath := filepath.Join(worktreeBase, "lwpc-1")
+	if normalizePath(ready.wtPath) != normalizePath(wantPath) {
+		t.Errorf("wtPath = %q, want %q", ready.wtPath, wantPath)
+	}
+	if _, err := os.Stat(ready.wtPath); err != nil {
+		t.Errorf("worktree should exist on disk: %v", err)
+	}
+	// Hook ran with wtPath as cwd — marker is at absolute path, so it exists.
+	if _, err := os.Stat(markerPath); err != nil {
+		t.Errorf("post-create hook marker missing: %v", err)
+	}
+}
+
+func TestLaunchWithPromptCmdHookFailure(t *testing.T) {
+	repoDir := setupTestRepo(t)
+	worktreeBase := filepath.Join(t.TempDir(), "worktrees")
+
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(origDir) }()
+
+	m := NewModel(Config{
+		BranchPrefix:   "feature/",
+		WorktreeBase:   worktreeBase,
+		ClaudeCommand:  "claude",
+		PostCreateHook: "exit 7",
+	})
+
+	issue := Issue{Identifier: "LWPC-2", Title: "Hook failure"}
+	msg := m.launchWithPromptCmd(issue, "")()
+
+	ready, ok := msg.(launchReadyMsg)
+	if !ok {
+		t.Fatalf("got %T, want launchReadyMsg", msg)
+	}
+	if ready.hookErr == nil {
+		t.Error("expected hookErr, got nil")
+	}
+	// Worktree should still be created despite hook failure.
+	if _, err := os.Stat(ready.wtPath); err != nil {
+		t.Errorf("worktree should exist even when hook fails: %v", err)
+	}
+	if ready.issue.Identifier != "LWPC-2" {
+		t.Errorf("issue.Identifier = %q, want LWPC-2", ready.issue.Identifier)
+	}
+}
+
+func TestLaunchWithPromptCmdCreateFailure(t *testing.T) {
+	// Run from a non-git directory so FindRepoRoot fails.
+	nonGit := t.TempDir()
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(nonGit); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(origDir) }()
+
+	m := NewModel(Config{
+		BranchPrefix: "feature/",
+		WorktreeBase: filepath.Join(nonGit, "wt"),
+	})
+
+	msg := m.launchWithPromptCmd(Issue{Identifier: "LWPC-3"}, "")()
+	created, ok := msg.(worktreeCreatedMsg)
+	if !ok {
+		t.Fatalf("got %T, want worktreeCreatedMsg on create failure", msg)
+	}
+	if created.err == nil {
+		t.Error("expected err, got nil")
+	}
+	if created.identifier != "LWPC-3" {
+		t.Errorf("identifier = %q, want LWPC-3", created.identifier)
+	}
+}
+
+// TestWorktreeCreatedMsgHookErrorWKey covers the w-key path: when the user
+// creates a worktree without launching (via createSelectedWorktree), a failed
+// post-create hook produces a worktreeCreatedMsg whose status line is
+// different from the launch path. See PR #40.
+func TestWorktreeCreatedMsgHookErrorWKey(t *testing.T) {
+	m := NewModel(Config{
+		ClaudeCommand: "claude",
+		WorktreeBase:  "/tmp/wt",
+		BranchPrefix:  "feature/",
+	})
+
+	result, _ := m.Update(worktreeCreatedMsg{
+		path:       "/tmp/wt/test-1",
+		identifier: "TEST-1",
+		hookErr:    errors.New("npm install failed"),
+	})
+	model := result.(Model)
+
+	// The w-key status message format: "Worktree created: ... (hook failed: ...)"
+	if !strings.Contains(model.statusMsg, "hook failed") {
+		t.Errorf("statusMsg should mention hook failure, got %q", model.statusMsg)
+	}
+	if !strings.Contains(model.statusMsg, "Worktree created") {
+		t.Errorf("statusMsg should mention Worktree created, got %q", model.statusMsg)
+	}
+	// Distinct from the launch-path message which starts with "Warning:".
+	if strings.HasPrefix(model.statusMsg, "Warning:") {
+		t.Errorf("w-key path should not use Warning: prefix (launch path does), got %q", model.statusMsg)
+	}
+}
+
 // Ensure huh is used (compile-time check)
 var _ = huh.StateCompleted

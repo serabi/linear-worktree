@@ -92,9 +92,20 @@ const (
 	LayoutGrid                      // 4 slots: 2x2 grid on the right
 )
 
+// cmuxIO is the subset of CmuxClient methods PaneManager depends on.
+// Extracting it as an interface lets tests substitute a fake without
+// opening a real Unix socket.
+type cmuxIO interface {
+	SplitSurface(workspaceID, surfaceID, direction string) (string, error)
+	CloseSurface(workspaceID, surfaceID string) error
+	SendText(workspaceID, surfaceID, text string) error
+	ReadText(workspaceID, surfaceID string, lines int) (string, error)
+	FocusSurface(workspaceID, surfaceID string) error
+}
+
 // PaneManager tracks the E-layout state.
 type PaneManager struct {
-	client      *CmuxClient
+	client      cmuxIO
 	workspaceID string
 	tuiSurface  string // left pane (the TUI)
 	slots       [absoluteMaxSlots]*WorktreeSlot
@@ -215,7 +226,7 @@ func (c *CmuxClient) FocusSurface(workspaceID, surfaceID string) error {
 
 // --- PaneManager ---
 
-func NewPaneManager(client *CmuxClient, maxSlots int) *PaneManager {
+func NewPaneManager(client cmuxIO, maxSlots int) *PaneManager {
 	if maxSlots < 2 || maxSlots > absoluteMaxSlots {
 		maxSlots = defaultMaxSlots
 	}
