@@ -153,8 +153,8 @@ func TestRemoveWorktreeConfirmDialog(t *testing.T) {
 	if model.confirm.action != confirmRemoveWorktree {
 		t.Errorf("expected confirmRemoveWorktree, got %d", model.confirm.action)
 	}
-	if !strings.Contains(model.confirm.message, "TEST-1") {
-		t.Errorf("expected message to mention TEST-1, got %q", model.confirm.message)
+	if !strings.Contains(model.confirm.message, "feature/test-1") {
+		t.Errorf("expected message to mention feature/test-1, got %q", model.confirm.message)
 	}
 }
 

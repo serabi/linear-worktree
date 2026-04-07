@@ -583,13 +583,14 @@ func inferStatus(terminalText string) AgentStatus {
 	lines := strings.Split(terminalText, "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := lines[i]
+		trimmed := strings.TrimSpace(line)
 		if containsAny(line, "[y/n]", "[Y/n]") {
 			return AgentWaiting
 		}
 		if containsAny(line, "to interrupt", "ctrl+c") {
 			return AgentRunning
 		}
-		if containsAny(line, "❯", "> ") || strings.TrimSpace(line) == ">" {
+		if strings.Contains(line, "❯") || trimmed == ">" || trimmed == "> " {
 			return AgentIdle
 		}
 	}

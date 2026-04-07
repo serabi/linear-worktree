@@ -12,4 +12,4 @@
    Add multiple teams separated by commas. First team is your default. Press 1-9 from the issue   
    list to switch between teams.                                                                  
                                                                                                   
-  Tab: next field  Enter: save  1/2/3/4: switch tab  (complete setup to continue)                   
+  Tab: next field  Enter: save  1/2/3/4: switch tab  (complete setup to continue)                 
