@@ -103,6 +103,12 @@ type Team struct {
 	Key  string `json:"key"`
 }
 
+type CustomView struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Icon string `json:"icon"`
+}
+
 func NewLinearClient(apiKey string) *LinearClient {
 	return &LinearClient{
 		apiKey: apiKey,
@@ -329,6 +335,62 @@ func (lc *LinearClient) fetchFilteredIssues(
 
 func (lc *LinearClient) GetIssues(teamID string, filter FilterMode, sort SortMode, after string) ([]Issue, PageInfo, error) {
 	return lc.fetchFilteredIssues("", "", map[string]any{"teamID": teamID}, filter, sort, after)
+}
+
+func (lc *LinearClient) GetCustomViews(teamID string) ([]CustomView, error) {
+	q := `
+		query($teamID: ID!) {
+			customViews(
+				filter: { team: { id: { eq: $teamID } } }
+				first: 50
+			) {
+				nodes { id name icon }
+			}
+		}`
+
+	var result struct {
+		CustomViews struct {
+			Nodes []CustomView `json:"nodes"`
+		} `json:"customViews"`
+	}
+
+	err := lc.queryWithVars(q, map[string]any{"teamID": teamID}, &result)
+	return result.CustomViews.Nodes, err
+}
+
+func (lc *LinearClient) GetCustomViewIssues(viewID string, after string) ([]Issue, PageInfo, error) {
+	afterClause := ""
+	afterVar := ""
+	if after != "" {
+		afterVar = ", $after: String"
+		afterClause = ", after: $after"
+	}
+	q := fmt.Sprintf(`
+		query($viewID: String!%s) {
+			customView(id: $viewID) {
+				issues(first: 50%s) {
+					nodes { %s }
+					pageInfo { hasNextPage endCursor }
+				}
+			}
+		}`, afterVar, afterClause, issueListFields)
+
+	vars := map[string]any{"viewID": viewID}
+	if after != "" {
+		vars["after"] = after
+	}
+
+	var result struct {
+		CustomView struct {
+			Issues struct {
+				Nodes    []Issue  `json:"nodes"`
+				PageInfo PageInfo `json:"pageInfo"`
+			} `json:"issues"`
+		} `json:"customView"`
+	}
+
+	err := lc.queryWithVars(q, vars, &result)
+	return result.CustomView.Issues.Nodes, result.CustomView.Issues.PageInfo, err
 }
 
 func (lc *LinearClient) AddComment(issueID, body string) error {

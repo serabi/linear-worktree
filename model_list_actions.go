@@ -10,6 +10,31 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+func (m *Model) cycleViewRight() (tea.Model, tea.Cmd) {
+	if len(m.customViews) == 0 {
+		return m, nil
+	}
+	m.activeViewIdx = (m.activeViewIdx + 1) % (len(m.customViews) + 1)
+	m.updateListTitle()
+	m.loading = true
+	m.loadingLabel = "Loading..."
+	return m, tea.Batch(m.fetchIssues(), m.spinner.Tick)
+}
+
+func (m *Model) cycleViewLeft() (tea.Model, tea.Cmd) {
+	if len(m.customViews) == 0 {
+		return m, nil
+	}
+	m.activeViewIdx--
+	if m.activeViewIdx < 0 {
+		m.activeViewIdx = len(m.customViews)
+	}
+	m.updateListTitle()
+	m.loading = true
+	m.loadingLabel = "Loading..."
+	return m, tea.Batch(m.fetchIssues(), m.spinner.Tick)
+}
+
 func (m *Model) cycleFilter() (tea.Model, tea.Cmd) {
 	m.filter = m.filter.Next()
 	m.updateListTitle()

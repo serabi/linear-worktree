@@ -9,9 +9,24 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+func (m Model) fetchCustomViews() tea.Cmd {
+	return func() tea.Msg {
+		client := NewLinearClient(m.cfg.LinearAPIKey)
+		views, err := client.GetCustomViews(m.cfg.TeamID)
+		return customViewsLoadedMsg{views: views, err: err}
+	}
+}
+
 func (m Model) fetchIssues() tea.Cmd {
 	return func() tea.Msg {
 		client := NewLinearClient(m.cfg.LinearAPIKey)
+
+		if m.activeViewIdx > 0 && m.activeViewIdx-1 < len(m.customViews) {
+			viewID := m.customViews[m.activeViewIdx-1].ID
+			issues, _, err := client.GetCustomViewIssues(viewID, "")
+			return issuesLoadedMsg{issues: issues, err: err}
+		}
+
 		hasProject := m.projectFilter != nil
 		hasLabel := m.labelFilter != nil
 

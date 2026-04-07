@@ -139,6 +139,7 @@ func (m Model) Init() tea.Cmd {
 		m.fetchWorktrees(),
 		m.fetchViewer(),
 		m.fetchProjects(),
+		m.fetchCustomViews(),
 		m.detectBranchIssue(),
 	}
 	if m.useCmux {

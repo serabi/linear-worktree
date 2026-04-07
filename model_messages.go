@@ -124,3 +124,8 @@ type worktreeListLoadedMsg struct {
 	worktrees []Worktree
 	err       error
 }
+
+type customViewsLoadedMsg struct {
+	views []CustomView
+	err   error
+}
