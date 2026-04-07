@@ -96,6 +96,7 @@ func NewModel(cfg Config) Model {
 		cfg:              cfg,
 		list:             l,
 		worktreeBranches: make(map[string]bool),
+		worktreePaths:    make(map[string]string),
 		filter:           FilterAssigned,
 		view:             viewList,
 		commentInput:     commentIn,
