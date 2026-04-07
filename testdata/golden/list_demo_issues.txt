@@ -3,7 +3,7 @@
     ENG > [Assigned to me]                                            
                                                                       
  │ ● ▲ ENG-142 Add rate limiting to public API endpoints              
- │ Alex | Platform Hardening | backend | security                     
+ │ Alex | Platform Hardening | Due in 2d | backend | security         
    ● ▲ ENG-138 Fix connection pool exhaustion under load              
    Alex | Platform Hardening | bug | backend                          
                                                                       

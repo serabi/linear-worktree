@@ -13,6 +13,7 @@ type issueItem struct {
 	hasWorktree bool
 	slotIdx     int
 	slotStatus  AgentStatus
+	slotColor   string // palette name; empty until a slot is attached
 }
 
 func (i issueItem) Title() string {
@@ -25,17 +26,7 @@ func (i issueItem) Title() string {
 
 	slot := ""
 	if i.slotIdx >= 0 {
-		var style lipgloss.Style
-		switch i.slotStatus {
-		case AgentRunning:
-			style = slotRunningStyle
-		case AgentWaiting:
-			style = slotWaitingStyle
-		case AgentIdle:
-			style = slotIdleStyle
-		default:
-			style = slotEmptyStyle
-		}
+		style := slotBadgeStyle(i.slotColor, i.slotStatus)
 		slot = style.Render(fmt.Sprintf(" [%d:%s]", i.slotIdx+1, i.slotStatus.String()))
 	}
 
@@ -154,22 +145,13 @@ type worktreeItem struct {
 	identifier string
 	slotIdx    int
 	slotStatus AgentStatus
+	slotColor  string // palette name; empty until a slot is attached
 }
 
 func (w worktreeItem) Title() string {
 	slot := ""
 	if w.slotIdx >= 0 {
-		var style lipgloss.Style
-		switch w.slotStatus {
-		case AgentRunning:
-			style = slotRunningStyle
-		case AgentWaiting:
-			style = slotWaitingStyle
-		case AgentIdle:
-			style = slotIdleStyle
-		default:
-			style = slotEmptyStyle
-		}
+		style := slotBadgeStyle(w.slotColor, w.slotStatus)
 		slot = style.Render(fmt.Sprintf(" [%d:%s]", w.slotIdx+1, w.slotStatus.String()))
 	}
 	ident := ""
@@ -184,7 +166,11 @@ func (w worktreeItem) Description() string {
 	if len(short) > 8 {
 		short = short[:8]
 	}
-	return fmt.Sprintf("%s  %s", short, w.path)
+	prefix := ""
+	if w.slotIdx >= 0 {
+		prefix = fmt.Sprintf("slot %d · ", w.slotIdx+1)
+	}
+	return fmt.Sprintf("%s%s  %s", prefix, short, w.path)
 }
 
 func (w worktreeItem) FilterValue() string {

@@ -217,17 +217,7 @@ func (m Model) renderSlotBar() string {
 			continue
 		}
 
-		var style lipgloss.Style
-		switch slot.Status {
-		case AgentRunning:
-			style = slotRunningStyle
-		case AgentWaiting:
-			style = slotWaitingStyle
-		case AgentIdle:
-			style = slotIdleStyle
-		default:
-			style = slotEmptyStyle
-		}
+		style := slotBadgeStyle(m.cfg.SlotColorName(i), slot.Status)
 		parts[i] = style.Render(
 			fmt.Sprintf("[%d] %s %s (%s)", i+1, slot.Status.String(), slot.Issue.Identifier, slot.Status.Label()),
 		)
@@ -281,7 +271,7 @@ func (m Model) viewSettings() string {
 	header := titleStyle.Render("Settings")
 	tabBar := m.renderSettingsTabBar()
 	body := m.activeSettingsForm().View()
-	helpText := "Tab: next field  Enter: save  1/2/3: switch tab"
+	helpText := "Tab: next field  Enter: save  1/2/3/4: switch tab"
 	if m.settingsFirstRun {
 		helpText += "  (complete setup to continue)"
 	} else {
@@ -342,5 +332,10 @@ func renderLegend() string {
 		priorityIcon(3) + " Medium  " +
 		priorityIcon(4) + " Low"
 
-	return statusLegend + "\n\n" + priorityLegend
+	slotLegend := heading.Render("Slots vs Worktrees") + "\n" +
+		"A slot is a cmux pane running Claude. A worktree is an on-disk git checkout.\n" +
+		"Closing a slot leaves the worktree intact. Removing a worktree closes any\n" +
+		"attached slot and deletes the branch."
+
+	return statusLegend + "\n\n" + priorityLegend + "\n\n" + slotLegend
 }

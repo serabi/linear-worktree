@@ -50,10 +50,22 @@ var (
 			Padding(1, 2).
 			Width(50)
 
-	slotRunningStyle = lipgloss.NewStyle().Foreground(greenColor)
 	slotWaitingStyle = lipgloss.NewStyle().Foreground(yellowColor)
-	slotIdleStyle    = lipgloss.NewStyle().Foreground(dimColor)
 	slotEmptyStyle   = lipgloss.NewStyle().Foreground(faintColor)
+
+	// slotPaletteColors maps palette names (see slotPaletteNames in config.go)
+	// to adaptive colors. Light variants target WCAG AA on #F5F5F5; dark
+	// variants target visibility on #1E1E1E.
+	slotPaletteColors = map[string]compat.AdaptiveColor{
+		"green":  greenColor,
+		"blue":   blueColor,
+		"purple": {Light: lipgloss.Color("#7C3AED"), Dark: lipgloss.Color("#A78BFA")},
+		"orange": orangeColor,
+		"pink":   {Light: lipgloss.Color("#BE185D"), Dark: lipgloss.Color("#EC4899")},
+		"cyan":   identCyanColor,
+		"yellow": yellowColor,
+		"red":    redColor,
+	}
 
 	commentDimStyle = lipgloss.NewStyle().Foreground(dimColor)
 
@@ -70,3 +82,31 @@ var (
 				BorderForeground(faintColor).
 				Padding(0, 2)
 )
+
+// slotPaletteColor resolves a palette name to an AdaptiveColor. Unknown
+// names fall back to green.
+func slotPaletteColor(name string) compat.AdaptiveColor {
+	if c, ok := slotPaletteColors[name]; ok {
+		return c
+	}
+	return slotPaletteColors["green"]
+}
+
+// slotBadgeStyle returns the lipgloss style to render the status badge for the
+// given palette name and status. The badge is colored using the per-slot
+// palette (so different slots are visually distinct) except when the slot is
+// waiting on input -- that case forces the yellow waiting style so users
+// don't miss prompts.
+func slotBadgeStyle(paletteName string, status AgentStatus) lipgloss.Style {
+	if status == AgentWaiting {
+		return slotWaitingStyle
+	}
+	if status == AgentInactive {
+		return slotEmptyStyle
+	}
+	s := lipgloss.NewStyle().Foreground(slotPaletteColor(paletteName))
+	if status == AgentIdle {
+		s = s.Faint(true)
+	}
+	return s
+}

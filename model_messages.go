@@ -7,6 +7,7 @@ type issuesLoadedMsg struct {
 
 type worktreesLoadedMsg struct {
 	branches map[string]bool
+	paths    map[string]string
 }
 
 type worktreeCreatedMsg struct {
