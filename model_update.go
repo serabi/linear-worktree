@@ -508,7 +508,7 @@ func (m *Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.confirm = &confirmDialog{
 			action:  confirmRemoveWorktree,
 			title:   "Remove Worktree?",
-			message: BuildRemoveWorktreeMessage(m.worktreePathFor(issue.Identifier), fmt.Sprintf("for %s", issue.Identifier)),
+			message: BuildRemoveWorktreeMessage(m.worktreePathFor(issue.Identifier), m.getBranchName(issue.Identifier)),
 			onYes:   func(m *Model) (tea.Model, tea.Cmd) { return m.removeSelectedWorktree() },
 		}
 		return m, nil

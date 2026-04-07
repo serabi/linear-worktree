@@ -336,6 +336,42 @@ func TestBuildRemoveWorktreeMessage(t *testing.T) {
 	}
 }
 
+func TestBuildRemoveWorktreeMessageDirty(t *testing.T) {
+	repoDir := setupTestRepo(t)
+	worktreeBase := filepath.Join(t.TempDir(), "worktrees")
+	cfg := Config{
+		BranchPrefix: "feature/",
+		WorktreeBase: worktreeBase,
+	}
+
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(origDir) }()
+
+	path, err := CreateWorktree("DIRTY-MSG", cfg)
+	if err != nil {
+		t.Fatalf("CreateWorktree: %v", err)
+	}
+
+	// Make it dirty with an untracked file.
+	if err := os.WriteFile(filepath.Join(path, "new.txt"), []byte("x"), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	msg := BuildRemoveWorktreeMessage(path, "feature/dirty-msg")
+	if !strings.Contains(msg, "WARNING") {
+		t.Errorf("dirty worktree should produce WARNING: %q", msg)
+	}
+	if !strings.Contains(msg, "uncommitted") {
+		t.Errorf("warning should mention uncommitted: %q", msg)
+	}
+}
+
 func TestCopyFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	src := filepath.Join(tmpDir, "source.txt")

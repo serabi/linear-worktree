@@ -57,14 +57,14 @@ var (
 	// to adaptive colors. Light variants target WCAG AA on #F5F5F5; dark
 	// variants target visibility on #1E1E1E.
 	slotPaletteColors = map[string]compat.AdaptiveColor{
-		"green":  {Light: lipgloss.Color("#15803D"), Dark: lipgloss.Color("#22C55E")},
-		"blue":   {Light: lipgloss.Color("#2563EB"), Dark: lipgloss.Color("#3B82F6")},
+		"green":  greenColor,
+		"blue":   blueColor,
 		"purple": {Light: lipgloss.Color("#7C3AED"), Dark: lipgloss.Color("#A78BFA")},
-		"orange": {Light: lipgloss.Color("#C2410C"), Dark: lipgloss.Color("#F97316")},
+		"orange": orangeColor,
 		"pink":   {Light: lipgloss.Color("#BE185D"), Dark: lipgloss.Color("#EC4899")},
-		"cyan":   {Light: lipgloss.Color("#0E7490"), Dark: lipgloss.Color("#06B6D4")},
-		"yellow": {Light: lipgloss.Color("#B45309"), Dark: lipgloss.Color("#EAB308")},
-		"red":    {Light: lipgloss.Color("#B91C1C"), Dark: lipgloss.Color("#EF4444")},
+		"cyan":   identCyanColor,
+		"yellow": yellowColor,
+		"red":    redColor,
 	}
 
 	commentDimStyle = lipgloss.NewStyle().Foreground(dimColor)

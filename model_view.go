@@ -271,7 +271,7 @@ func (m Model) viewSettings() string {
 	header := titleStyle.Render("Settings")
 	tabBar := m.renderSettingsTabBar()
 	body := m.activeSettingsForm().View()
-	helpText := "Tab: next field  Enter: save  1/2/3: switch tab"
+	helpText := "Tab: next field  Enter: save  1/2/3/4: switch tab"
 	if m.settingsFirstRun {
 		helpText += "  (complete setup to continue)"
 	} else {

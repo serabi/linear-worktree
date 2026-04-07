@@ -577,16 +577,21 @@ func (pm *PaneManager) logEvent(level, message string) {
 }
 
 // inferStatus pattern-matches terminal content to determine Claude's state.
+// Lines are scanned newest-to-oldest so that recent prompts override stale
+// patterns (e.g. an old [y/n] above a fresh idle prompt).
 func inferStatus(terminalText string) AgentStatus {
-	// Look for Claude Code's UI patterns
-	if containsAny(terminalText, "[y/n]", "[Y/n]") {
-		return AgentWaiting
-	}
-	if containsAny(terminalText, "to interrupt", "ctrl+c") {
-		return AgentRunning
-	}
-	if containsAny(terminalText, "❯", "\n> ") || strings.TrimSpace(terminalText) == ">" {
-		return AgentIdle
+	lines := strings.Split(terminalText, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := lines[i]
+		if containsAny(line, "[y/n]", "[Y/n]") {
+			return AgentWaiting
+		}
+		if containsAny(line, "to interrupt", "ctrl+c") {
+			return AgentRunning
+		}
+		if containsAny(line, "❯", "> ") || strings.TrimSpace(line) == ">" {
+			return AgentIdle
+		}
 	}
 	return AgentRunning // default to running if we can't tell
 }
