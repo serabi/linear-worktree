@@ -78,11 +78,40 @@ func (m Model) renderTeamTabBar() string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
 }
 
+func (m Model) renderViewTabBar() string {
+	if len(m.customViews) == 0 {
+		return ""
+	}
+	var tabs []string
+	label := "All Issues"
+	if m.activeViewIdx == 0 {
+		tabs = append(tabs, activeTabStyle.Render(label))
+	} else {
+		tabs = append(tabs, inactiveTabStyle.Render(label))
+	}
+	for i, v := range m.customViews {
+		name := v.Name
+		if v.Icon != "" {
+			name = v.Icon + " " + name
+		}
+		if m.activeViewIdx == i+1 {
+			tabs = append(tabs, activeTabStyle.Render(name))
+		} else {
+			tabs = append(tabs, inactiveTabStyle.Render(name))
+		}
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
+}
+
 func (m Model) viewList() string {
 	slotBar := m.renderSlotBar()
 	teamBar := m.renderTeamTabBar()
 	if teamBar != "" {
 		teamBar += "\n"
+	}
+	viewBar := m.renderViewTabBar()
+	if viewBar != "" {
+		viewBar += "\n"
 	}
 	content := m.list.View()
 
@@ -93,7 +122,7 @@ func (m Model) viewList() string {
 			Padding(1, 3).
 			Render(m.spinner.View() + "  Loading issues...")
 		overlay := lipgloss.Place(m.width, m.height-4, lipgloss.Center, lipgloss.Center, loadingBox)
-		return appStyle.Render(lipgloss.JoinVertical(lipgloss.Left, slotBar, teamBar, overlay))
+		return appStyle.Render(lipgloss.JoinVertical(lipgloss.Left, slotBar, teamBar, viewBar, overlay))
 	}
 
 	if len(m.issues) == 0 {
@@ -128,13 +157,16 @@ func (m Model) viewList() string {
 		row1 = "enter:detail  c:claude  p:project  L:labels  w:worktrees"
 		row2 = "f:filter  o:sort  s:settings(+teams)  ?:help"
 	}
+	if len(m.customViews) > 0 {
+		row2 += "  [/]:views"
+	}
 	shortcutText := row1 + "  " + row2
 	if lipgloss.Width(shortcutText)+2 > m.width {
 		shortcutText = row1 + "\n" + row2
 	}
 	shortcuts := statusBarStyle.Render(shortcutText)
 	base := appStyle.Render(
-		lipgloss.JoinVertical(lipgloss.Left, slotBar, teamBar, content, status, legend, shortcuts),
+		lipgloss.JoinVertical(lipgloss.Left, slotBar, teamBar, viewBar, content, status, legend, shortcuts),
 	)
 
 	if m.showHelp {

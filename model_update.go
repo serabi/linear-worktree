@@ -24,6 +24,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.cfg.Teams) > 1 {
 			listHeight -= 2
 		}
+		if len(m.customViews) > 0 {
+			listHeight -= 2
+		}
 		m.list.SetSize(msg.Width-2, listHeight)
 		m.linkList.SetSize(msg.Width-4, msg.Height-4)
 		m.worktreeList.SetSize(msg.Width-4, msg.Height-4)
@@ -265,6 +268,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case customViewsLoadedMsg:
+		if msg.err == nil {
+			m.customViews = msg.views
+		}
+		return m, nil
+
 	case teamSwitchedMsg:
 		if msg.err != nil {
 			m.statusMsg = fmt.Sprintf("Team switch error: %v", msg.err)
@@ -279,7 +288,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.loading = true
 		m.loadingLabel = fmt.Sprintf("Loading %s...", m.cfg.TeamKey)
-		return m, tea.Batch(m.fetchIssues(), m.fetchProjects(), m.fetchWorkflowStates(), m.spinner.Tick)
+		return m, tea.Batch(m.fetchIssues(), m.fetchProjects(), m.fetchWorkflowStates(), m.fetchCustomViews(), m.spinner.Tick)
 
 	case setupCompleteMsg:
 		m.cfg = msg.cfg
@@ -290,7 +299,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.keys.TeamSwitch.SetEnabled(len(m.cfg.Teams) > 1)
 		m.updateListTitle()
 		m.recreatePaneManagerIfNeeded()
-		cmds := []tea.Cmd{m.fetchIssues(), m.fetchWorktrees(), m.fetchViewer(), m.fetchProjects()}
+		cmds := []tea.Cmd{m.fetchIssues(), m.fetchWorktrees(), m.fetchViewer(), m.fetchProjects(), m.fetchCustomViews()}
 		if m.useCmux {
 			cmds = append(cmds, m.startStatusPoll())
 		}
@@ -481,10 +490,24 @@ func (m *Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case key.Matches(msg, key.NewBinding(key.WithKeys("]"))):
+		return m.cycleViewRight()
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("["))):
+		return m.cycleViewLeft()
+
 	case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
+		if m.activeViewIdx > 0 {
+			m.statusMsg = "Switch to All Issues first ([/])"
+			return m, nil
+		}
 		return m.cycleFilter()
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("f"))):
+		if m.activeViewIdx > 0 {
+			m.statusMsg = "Switch to All Issues first ([/])"
+			return m, nil
+		}
 		return m, m.showFilterPicker()
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("r"))):
@@ -529,12 +552,24 @@ func (m *Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.buildSettingsForm()
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("o"))):
+		if m.activeViewIdx > 0 {
+			m.statusMsg = "Switch to All Issues first ([/])"
+			return m, nil
+		}
 		return m, m.showSortPicker()
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("p"))):
+		if m.activeViewIdx > 0 {
+			m.statusMsg = "Switch to All Issues first ([/])"
+			return m, nil
+		}
 		return m, m.showProjectPicker()
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("L"))):
+		if m.activeViewIdx > 0 {
+			m.statusMsg = "Switch to All Issues first ([/])"
+			return m, nil
+		}
 		return m, m.showLabelPicker()
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("?"))):

@@ -60,6 +60,8 @@ type teamState struct {
 	labelFilter    *string
 	labelName      string
 	listIndex      int
+	customViews    []CustomView
+	activeViewIdx  int
 }
 
 type Model struct {
@@ -123,6 +125,9 @@ type Model struct {
 	workflowStates []WorkflowState
 	stateForm      *huh.Form
 	stateIssue     *Issue
+
+	customViews   []CustomView
+	activeViewIdx int // 0 = "All Issues", 1+ = custom view index
 
 	filterForm *huh.Form
 	sortForm   *huh.Form
@@ -277,19 +282,32 @@ func (m *Model) rebuildList() {
 	m.list.SetItems(items)
 }
 
+func (m Model) activeViewName() string {
+	if m.activeViewIdx > 0 && m.activeViewIdx-1 < len(m.customViews) {
+		return m.customViews[m.activeViewIdx-1].Name
+	}
+	return ""
+}
+
 func (m Model) buildStatusLine() string {
 	parts := []string{}
 	scope := m.cfg.TeamKey
-	if m.projectName != "" {
-		scope += " > " + m.projectName
-	}
-	if m.labelName != "" {
-		scope += " > label:" + m.labelName
+	if name := m.activeViewName(); name != "" {
+		scope += " > " + name
+	} else {
+		if m.projectName != "" {
+			scope += " > " + m.projectName
+		}
+		if m.labelName != "" {
+			scope += " > label:" + m.labelName
+		}
 	}
 	parts = append(parts, scope)
 	parts = append(parts, fmt.Sprintf("%d issues", len(m.issues)))
-	parts = append(parts, m.filter.String())
-	parts = append(parts, m.sortMode.String())
+	if m.activeViewIdx == 0 {
+		parts = append(parts, m.filter.String())
+		parts = append(parts, m.sortMode.String())
+	}
 	if m.useCmux && m.paneManager != nil {
 		parts = append(parts, fmt.Sprintf("slots: %d/%d", m.paneManager.ActiveCount(), m.cfg.MaxSlots))
 	}
@@ -301,13 +319,17 @@ func (m *Model) updateListTitle() {
 	if len(m.cfg.Teams) <= 1 {
 		parts = append(parts, m.cfg.TeamKey)
 	}
-	if m.projectName != "" {
-		parts = append(parts, m.projectName)
+	if name := m.activeViewName(); name != "" {
+		parts = append(parts, "["+name+"]")
+	} else {
+		if m.projectName != "" {
+			parts = append(parts, m.projectName)
+		}
+		if m.labelName != "" {
+			parts = append(parts, "label:"+m.labelName)
+		}
+		parts = append(parts, "["+m.filter.String()+"]")
 	}
-	if m.labelName != "" {
-		parts = append(parts, "label:"+m.labelName)
-	}
-	parts = append(parts, "["+m.filter.String()+"]")
 	m.list.Title = strings.Join(parts, " > ")
 	if m.list.Title == "" {
 		m.list.Title = "Issues"
@@ -326,6 +348,8 @@ func (m *Model) saveTeamState() {
 	copy(labels, m.labels)
 	states := make([]WorkflowState, len(m.workflowStates))
 	copy(states, m.workflowStates)
+	views := make([]CustomView, len(m.customViews))
+	copy(views, m.customViews)
 	m.teamCache[m.cfg.TeamKey] = &teamState{
 		issues:         issues,
 		projects:       projects,
@@ -337,6 +361,8 @@ func (m *Model) saveTeamState() {
 		labelFilter:    m.labelFilter,
 		labelName:      m.labelName,
 		listIndex:      m.list.Index(),
+		customViews:    views,
+		activeViewIdx:  m.activeViewIdx,
 	}
 }
 
@@ -354,6 +380,8 @@ func (m *Model) restoreTeamState() bool {
 	m.projectName = ts.projectName
 	m.labelFilter = ts.labelFilter
 	m.labelName = ts.labelName
+	m.customViews = ts.customViews
+	m.activeViewIdx = ts.activeViewIdx
 	m.rebuildList()
 	m.list.Select(ts.listIndex)
 	m.updateListTitle()
@@ -378,6 +406,8 @@ func (m *Model) flushTeamState() {
 	m.stateIssue = nil
 	m.stateForm = nil
 	m.filter = FilterAssigned
+	m.activeViewIdx = 0
+	m.customViews = nil
 	m.view = viewList
 	m.list.SetItems(nil)
 	m.updateListTitle()
