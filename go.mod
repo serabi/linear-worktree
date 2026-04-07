@@ -9,6 +9,7 @@ require (
 	charm.land/huh/v2 v2.0.3
 	charm.land/lipgloss/v2 v2.0.2
 	github.com/charmbracelet/x/ansi v0.11.6
+	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/term v0.31.0
 )
